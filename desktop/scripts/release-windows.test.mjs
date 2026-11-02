@@ -154,7 +154,7 @@ test('uploads the installer before publishing latest.json with a hash-versioned 
   })
 
   assert.deepEqual(uploadedInstaller, installerBytes)
-  assert.ok(release.installerUrl.includes(`/releases/0.1.0/${release.contentHash}/Sunny-Beauty-0.1.0-windows-x86_64-setup.exe`))
+  assert.ok(release.installerUrl.includes(`/releases/0.1.0/${release.contentHash}/CRM-Spa-0.1.0-windows-x86_64-setup.exe`))
   assert.equal(release.latestManifestUrl, `${serverUrl}/storage/v1/object/public/desktop-updates/latest.json`)
   assert.equal(publishedManifest.version, '0.1.0')
   assert.equal(serverError, undefined)
