@@ -1,0 +1,554 @@
+.daily-revenue-page {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  container: daily-revenue / inline-size;
+}
+
+.daily-revenue-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.daily-revenue-heading h1 {
+  margin: 0;
+  color: var(--text);
+  font-size: 24px;
+  line-height: 1.3;
+  letter-spacing: -0.45px;
+}
+
+.daily-revenue-heading p {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.daily-revenue-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.daily-revenue-actions input[type="date"] {
+  height: 38px;
+  padding: 0 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 13px;
+}
+
+/* KPI Summary Cards */
+.daily-revenue-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.daily-revenue-kpi-card {
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.daily-revenue-kpi-icon {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  border-radius: 10px;
+  display: grid;
+  place-items: center;
+}
+
+.daily-revenue-kpi-icon.revenue {
+  background: #edf5ef;
+  color: #2b7a4b;
+}
+
+.daily-revenue-kpi-icon.commission {
+  background: #fdf5e8;
+  color: #b45309;
+}
+
+.daily-revenue-kpi-icon.sessions {
+  background: #eef7fc;
+  color: #0369a1;
+}
+
+.daily-revenue-kpi-content {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.daily-revenue-kpi-content small {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.daily-revenue-kpi-content b {
+  color: var(--text);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.3px;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.daily-revenue-view-switch {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.daily-revenue-view-switch button {
+  min-height: 38px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.daily-revenue-view-switch button[aria-pressed="true"] {
+  border-color: var(--teal);
+  background: var(--teal-soft);
+  color: var(--teal-dark);
+}
+
+.daily-revenue-view-switch button span {
+  min-width: 22px;
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--canvas);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
+.daily-revenue-kpi-content span {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+/* Entry Workbench */
+.daily-revenue-card {
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.daily-revenue-card-header {
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  background: #fafbfc;
+}
+
+.daily-revenue-card-header h2 {
+  margin: 0;
+  font-size: 16px;
+  color: var(--text);
+}
+
+.daily-revenue-card-header p {
+  margin: 3px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.daily-revenue-rows {
+  max-height: clamp(300px, 48dvh, 520px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+  padding: 16px;
+  display: grid;
+  gap: 14px;
+}
+
+.daily-revenue-row-card {
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid #e5eae8;
+  border-radius: 8px;
+  background: #fcfdfc;
+  display: grid;
+  gap: 12px;
+  position: relative;
+  transition: border-color 0.15s ease;
+}
+
+.daily-revenue-row-card:hover {
+  border-color: #cbd5d1;
+}
+
+.daily-revenue-row-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.daily-revenue-row-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  color: #2c3e38;
+}
+
+.daily-revenue-row-badge {
+  padding: 3px 8px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.daily-revenue-row-badge.retail {
+  background: #f0f3f2;
+  color: #495e57;
+}
+
+.daily-revenue-row-badge.package {
+  background: #e8f5ec;
+  color: #276738;
+}
+
+.daily-revenue-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+@container daily-revenue (min-width: 1180px) {
+  .daily-revenue-grid {
+    grid-template-columns: minmax(140px, .9fr) minmax(0, 1.2fr) minmax(0, 1.3fr) minmax(120px, .8fr) minmax(0, 1fr);
+  }
+}
+
+@container daily-revenue (max-width: 680px) {
+  .daily-revenue-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .daily-revenue-kpi-card:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .daily-revenue-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+.daily-revenue-field {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+}
+
+.daily-revenue-field label {
+  font-size: 11px;
+  font-weight: 600;
+  color: #52635e;
+}
+
+.daily-revenue-field select,
+.daily-revenue-field input {
+  width: 100%;
+  min-width: 0;
+  height: 38px;
+  padding: 0 10px;
+  border: 1px solid #d4deda;
+  border-radius: 6px;
+  background: #fff;
+  color: var(--text);
+  font-size: 13px;
+  outline: none;
+}
+
+.daily-revenue-field select:focus,
+.daily-revenue-field input:focus {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12);
+}
+
+.daily-revenue-customer-select-wrap {
+  min-width: 0;
+  display: flex;
+  gap: 6px;
+}
+
+.daily-revenue-customer-select-wrap select {
+  width: 0;
+  flex: 1;
+}
+
+.daily-revenue-customer-add-btn {
+  height: 38px;
+  width: 38px;
+  border: 1px solid #d4deda;
+  border-radius: 6px;
+  background: #fff;
+  color: var(--teal);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  flex: 0 0 38px;
+}
+
+.daily-revenue-customer-add-btn:hover {
+  background: #f0f7f5;
+  border-color: var(--teal);
+}
+
+.daily-revenue-row-bottom {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 8px;
+  border-top: 1px dashed #e5eae8;
+  font-size: 12px;
+  flex-wrap: wrap;
+}
+
+.daily-revenue-row-bottom > div {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.daily-revenue-preview-commission {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #7b4f0b;
+  background: #fff8eb;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-weight: 600;
+  border: 1px solid #f6e4be;
+  max-width: 100%;
+}
+
+.daily-revenue-preview-commission svg,
+.daily-revenue-package-badge svg {
+  flex-shrink: 0;
+}
+
+.daily-revenue-package-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 8px;
+  border-radius: 5px;
+  background: #e6f4ea;
+  color: #1e6b36;
+  font-size: 11px;
+  font-weight: 600;
+  max-width: 100%;
+  white-space: normal;
+}
+
+.daily-revenue-footer-bar {
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  background: #fbfcfb;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.daily-revenue-draft-total {
+  flex: 1;
+  min-width: 240px;
+  font-size: 13px;
+  color: #43544f;
+}
+
+.daily-revenue-draft-total strong {
+  color: var(--text);
+  font-size: 15px;
+}
+
+/* Recorded Shift Logs Table */
+.daily-revenue-table-wrap {
+  max-height: clamp(260px, 48dvh, 520px);
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-gutter: stable;
+}
+
+.daily-revenue-table {
+  width: 100%;
+  min-width: 900px;
+  border-collapse: collapse;
+  text-align: left;
+  font-size: 13px;
+}
+
+.daily-revenue-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  color: #64748b;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  background: #fafbfc;
+}
+
+.daily-revenue-table td {
+  padding: 12px 16px;
+  border-bottom: 1px solid #f1f5f9;
+  color: #334155;
+}
+
+.daily-revenue-table tr:hover td {
+  background: #f8fafc;
+}
+
+.daily-revenue-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.daily-revenue-table td:nth-child(3),
+.daily-revenue-table td:nth-child(5),
+.daily-revenue-table td:nth-child(6) {
+  min-width: 140px;
+  max-width: 260px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.daily-revenue-table .daily-revenue-table-state {
+  height: 150px;
+  padding: 24px;
+  color: var(--muted);
+  text-align: center;
+  white-space: normal;
+}
+
+.daily-revenue-table-state button {
+  margin-left: 12px;
+}
+
+.daily-revenue-pagination {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 12px 16px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.daily-revenue-pagination > div {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.daily-revenue-customer-modal {
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.daily-revenue-customer-modal > header,
+.daily-revenue-customer-modal > footer {
+  flex-shrink: 0;
+}
+
+.daily-revenue-customer-modal .modal-body {
+  overflow-y: auto;
+}
+
+.daily-revenue-customer-modal > footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 12px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--surface);
+}
+
+@container daily-revenue (max-width: 420px) {
+  .daily-revenue-kpi-grid,
+  .daily-revenue-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .daily-revenue-kpi-card:last-child {
+    grid-column: auto;
+  }
+
+  .daily-revenue-actions,
+  .daily-revenue-actions > button,
+  .daily-revenue-actions > input,
+  .daily-revenue-footer-bar > button {
+    width: 100%;
+  }
+
+  .daily-revenue-view-switch button {
+    flex: 1 1 100%;
+  }
+
+  .daily-revenue-draft-total {
+    min-width: 0;
+    flex-basis: 100%;
+  }
+}
+
+.daily-revenue-badge {
+  display: inline-block;
+  padding: 2px 7px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.daily-revenue-badge.package {
+  background: #e0f2fe;
+  color: #0369a1;
+}
+
+.daily-revenue-badge.retail {
+  background: #f1f5f9;
+  color: #475569;
+}

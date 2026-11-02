@@ -1,0 +1,46 @@
+.app-popup{position:fixed;inset:0;width:min(620px,calc(100vw - 32px));max-width:620px;max-height:calc(100dvh - 32px);height:fit-content;margin:auto;padding:0;overflow:hidden;border:1px solid var(--border,#dbe3e1);border-radius:14px;background:var(--surface,#fff);color:var(--text,#202b30);box-shadow:0 18px 45px #0f2d2624}
+.app-popup[open]{display:flex;flex-direction:column}
+.app-popup::backdrop{background:#17232278}
+.app-popup-header{display:flex;align-items:center;justify-content:space-between;gap:16px;flex-shrink:0;padding:18px 22px;border-bottom:1px solid var(--border,#e1e5e7)}
+.app-popup-header h2{margin:0;font-size:16px;line-height:1.4;font-weight:600}
+.app-popup-header p{margin:5px 0 0;color:var(--muted,#606f75);font-size:12px;line-height:1.5;overflow-wrap:anywhere}
+.app-popup-header .icon-button{flex-shrink:0;width:36px;height:36px}
+.app-popup>form{display:flex;flex-direction:column;gap:14px;min-height:0;margin:0;padding:20px 22px 0;overflow-y:auto;overscroll-behavior:contain;scroll-padding-block:12px 80px}
+.app-popup label{display:grid;gap:6px;min-width:0;color:var(--text,#202b30);font-size:12px;font-weight:600}
+.app-popup input:not([type="checkbox"]),.app-popup select,.app-popup textarea{width:100%;min-width:0;min-height:38px;padding:8px 10px;border:1px solid var(--border,#d9e2df);border-radius:8px;background:white;color:var(--text,#273532);font:inherit;font-size:12px;font-weight:400}
+.app-popup textarea{height:auto;min-height:78px;resize:vertical;line-height:1.5}
+.app-popup label b{color:#a93b34}
+.app-popup input:focus-visible,.app-popup select:focus-visible,.app-popup textarea:focus-visible,.app-popup button:focus-visible{outline:3px solid #0f766e35;outline-offset:2px}
+.app-popup>form>footer,.app-popup .popup-actions{position:sticky;bottom:0;z-index:1;display:flex;flex-shrink:0;justify-content:flex-end;gap:8px;margin:4px -22px 0;padding:14px 22px;border-top:1px solid var(--border,#e1e5e7);background:var(--surface,#fff)}
+.app-popup>form>footer button{min-height:38px;font-size:12px}
+.app-popup .popup-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.app-popup .popup-grid .wide{grid-column:1/-1}
+.popup-note{margin:0;color:var(--muted,#606f75);font-size:12px;line-height:1.6}
+.popup-error{margin:0;padding:10px 12px;border-radius:8px;background:#fcf1f1;color:#9d302c;font-size:12px;line-height:1.5}
+.vn-date-control{position:relative;display:block;width:100%;min-width:0;font-weight:400}
+.vn-date-control>input{width:100%;padding-right:38px!important}
+.vn-date-picker{position:absolute;right:1px;top:1px;bottom:1px;width:34px;display:grid;place-items:center;color:var(--teal,#0f766e);border-radius:7px}
+.vn-date-picker>input[type="date"]{position:absolute;inset:0;width:100%;height:100%;min-height:0;padding:0;border:0;opacity:0;cursor:pointer}
+.vn-date-picker>input::-webkit-calendar-picker-indicator{position:absolute;inset:0;width:100%;height:100%;margin:0;cursor:pointer}
+.vn-date-picker:focus-within{outline:3px solid #0f766e35;outline-offset:1px}
+@media(max-width:560px){.app-popup{width:calc(100vw - 24px);max-height:calc(100dvh - 24px)}.app-popup-header{padding:16px}.app-popup>form{padding:16px 16px 0}.app-popup>form>footer,.app-popup .popup-actions{margin-inline:-16px;padding:12px 16px}.app-popup .popup-grid{grid-template-columns:1fr}.app-popup .popup-grid .wide{grid-column:auto}}
+@media print{.app-popup{display:none!important}}
+.app-popup .offering-popup-form .modal-body{padding:0;overflow:visible;display:grid;gap:14px}
+.app-popup .active-check,.app-popup .team-checkbox{display:flex;align-items:center;gap:8px}
+.app-popup input[type="checkbox"]{width:16px;height:16px;accent-color:var(--teal,#0f766e)}
+.app-popup .offering-popup-form .commission-config{padding:12px;border:1px solid var(--border);border-radius:8px}
+.app-popup .appointment-editor-body{padding:0;overflow:visible;gap:14px}
+.app-popup .appointment-editor-form{flex:initial}
+.app-popup .appointment-package-toggle{display:flex;align-items:center;gap:8px}
+.app-popup .invoice-action-form>footer .primary-button{height:38px}
+@media(max-width:560px){.app-popup .team-form-grid,.app-popup .customer-health-form-grid,.app-popup .form-grid,.app-popup .appointment-editor-two{grid-template-columns:1fr}}
+
+.vn-date-control>input{height:38px;min-width:0;padding:0 38px 0 10px;border:1px solid var(--border,#d9e2df);border-radius:8px;background:white;color:var(--text,#273532);font-size:12px}
+.daily-revenue-actions>.vn-date-control{width:158px}
+.appointment-date-input .vn-date-control{width:142px}
+.appointment-date-input .vn-date-control>input{width:100%;height:30px;border:0;background:transparent}
+.app-popup .customer-consume-form{border-top:0;background:white}
+.app-popup .popup-header-error{margin:14px 22px 0;flex-shrink:0}
+.popup-note:has(svg){display:flex;align-items:flex-start;gap:7px}
+.popup-note>svg{flex-shrink:0;margin-top:2px}
+.app-popup>form>:not(footer){flex-shrink:0}
