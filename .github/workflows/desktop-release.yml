@@ -1,0 +1,62 @@
+name: Phat hanh CRM Spa Windows
+
+on:
+  push:
+    tags: ['desktop-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: desktop
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: desktop/package-lock.json
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Kiem tra cau hinh phat hanh
+        shell: pwsh
+        env:
+          SIGNING_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          DATABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+        run: |
+          if (-not $env:SIGNING_KEY -or -not $env:DATABASE_URL -or -not $env:PUBLISHABLE_KEY) {
+            throw 'Thieu GitHub Actions secrets: TAURI_SIGNING_PRIVATE_KEY, VITE_SUPABASE_URL, VITE_SUPABASE_PUBLISHABLE_KEY.'
+          }
+          $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          if ($env:GITHUB_REF_TYPE -eq 'tag' -and $env:GITHUB_REF_NAME -ne "desktop-v$version") {
+            throw 'Tag phai trung version trong desktop/src-tauri/tauri.conf.json.'
+          }
+      - run: npm ci
+      - run: npm run test:release
+      - name: Build va tao ban phat hanh nhap
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_PUBLISHABLE_KEY: ${{ secrets.VITE_SUPABASE_PUBLISHABLE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          projectPath: desktop
+          args: --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":true}}'
+          tagName: desktop-v__VERSION__
+          releaseName: CRM Spa __VERSION__
+          releaseBody: 'Tai bo cai .exe de cai lan dau. Cac may da cai ban ho tro updater co the cap nhat trong app.'
+          releaseDraft: true
+          prerelease: false
+          uploadUpdaterJson: true
+          updaterJsonPreferNsis: true
