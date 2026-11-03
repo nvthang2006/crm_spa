@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Calculator,
@@ -119,7 +119,6 @@ export default function PayrollWorkbench({ client, onEditorStateChange }: Props)
     onSuccess: () => {
       toast.success('Đã lưu phiếu điều chỉnh lương.')
       setShowAdjustmentModal(false)
-      onEditorStateChange?.(false)
       setAdjustmentDraft(emptyAdjustment)
       queryClient.invalidateQueries({ queryKey: ['payroll-periods'] })
       queryClient.invalidateQueries({ queryKey: ['payroll-period-detail', activePeriodId] })
@@ -160,6 +159,11 @@ export default function PayrollWorkbench({ client, onEditorStateChange }: Props)
 
   const payrollBusy = generateMutation.isPending || lockMutation.isPending || adjustmentMutation.isPending || reviewMutation.isPending
 
+  useEffect(() => {
+    onEditorStateChange?.(showAdjustmentModal || payrollBusy)
+    return () => onEditorStateChange?.(false)
+  }, [showAdjustmentModal, payrollBusy, onEditorStateChange])
+
   const calculatePayroll = () => {
     try {
       validatePayrollRange(periodStart, periodEnd)
@@ -174,12 +178,10 @@ export default function PayrollWorkbench({ client, onEditorStateChange }: Props)
     setAdjustmentDraft(emptyAdjustment)
     setAdjError(undefined)
     setShowAdjustmentModal(true)
-    onEditorStateChange?.(true)
   }
 
   const closeAdjustmentEditor = () => {
     setShowAdjustmentModal(false)
-    onEditorStateChange?.(false)
   }
 
   return (

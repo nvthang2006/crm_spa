@@ -5,6 +5,23 @@ import os from 'node:os'
 import path from 'node:path'
 import { after, before, test } from 'node:test'
 import { buildUpdateManifest, createBuildEnvironment, publishWindowsRelease } from './release-windows.mjs'
+import { createWindowsReleaseConfig } from './build-windows.mjs'
+
+const githubUpdaterEndpoint = 'https://github.com/nvthang2006/crm_spa/releases/latest/download/latest.json'
+const configuredUpdater = { pubkey: 'existing-public-key', endpoints: [githubUpdaterEndpoint], requireSignedVersion: true }
+
+test('Windows build preserves the installed GitHub updater endpoint and signing identity', () => {
+  const config = createWindowsReleaseConfig({ tauriConfig: { plugins: { updater: configuredUpdater } }, signingPrivateKey: 'test-key' })
+  assert.deepEqual(config.plugins.updater.endpoints, [githubUpdaterEndpoint])
+  assert.equal(config.plugins.updater.pubkey, configuredUpdater.pubkey)
+  assert.equal(config.plugins.updater.requireSignedVersion, true)
+  assert.equal(config.bundle.createUpdaterArtifacts, true)
+})
+
+test('Windows build rejects a replacement public key or a Supabase updater endpoint', () => {
+  assert.throws(() => createWindowsReleaseConfig({ tauriConfig: { plugins: { updater: configuredUpdater } }, updaterPublicKey: 'different-key', signingPrivateKey: 'test-key' }), /khác khóa/)
+  assert.throws(() => createWindowsReleaseConfig({ tauriConfig: { plugins: { updater: { ...configuredUpdater, endpoints: ['https://example.supabase.co/storage/v1/object/public/desktop-updates/latest.json'] } } }, signingPrivateKey: 'test-key' }), /GitHub Releases/)
+})
 
 let server
 let serverUrl

@@ -31,6 +31,13 @@ export type DailyCommissionRule = {
 
 type OfferingForCommission = { id: number; price: number | null; sessions_total: number }
 
+export function hasUnsavedShiftEntries(rows: ShiftEntryRow[]): boolean {
+  return rows.length > 1 || rows.some((row) => row.classification !== 'retail'
+    || row.customerId !== '' || row.offeringId !== '' || row.technicianId !== ''
+    || row.collected !== 0 || row.paymentMethod !== 'cash' || row.notes !== ''
+    || row.commissionType !== 'percentage' || row.commissionValue !== '')
+}
+
 export function validateShiftEntry(row: ShiftEntryRow): string | null {
   if (!Number.isSafeInteger(row.customerId) || Number(row.customerId) <= 0) return 'Vui lòng chọn khách hàng.'
   if (!Number.isSafeInteger(row.offeringId) || Number(row.offeringId) <= 0) return 'Vui lòng chọn dịch vụ hoặc gói.'

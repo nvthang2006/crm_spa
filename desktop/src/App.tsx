@@ -6,9 +6,10 @@ import {
     useMemo,
     useRef,
     useState,
+    useSyncExternalStore,
     type FormEvent,
 } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useIsMutating, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
     ArrowUpRight,
     BadgeCheck,
@@ -32,7 +33,7 @@ import {
     type LucideIcon,
 } from "lucide-react";
 import { type Session } from "@supabase/supabase-js";
-import { check, type Update } from "@tauri-apps/plugin-updater";
+import { check } from "@tauri-apps/plugin-updater";
 import { isTauri } from "@tauri-apps/api/core";
 import { toast, Toaster } from "sonner";
 import { getSupabase, hasDesktopConfiguration } from "./lib/supabase";
@@ -44,6 +45,7 @@ import {
     type OfferingDraft,
 } from "./lib/offerings";
 import { loadBusinessSettings } from "./lib/team";
+import { DesktopUpdater } from "./lib/desktopUpdater";
 import "./styles.css";
 
 const AppointmentsWorkbench = lazy(
@@ -138,10 +140,18 @@ export default function App() {
     const [dailyRevenueEditing, setDailyRevenueEditing] = useState(false);
     const [payrollEditing, setPayrollEditing] = useState(false);
     const [draft, setDraft] = useState<OfferingDraft>(emptyOffering);
-    const [availableUpdate, setAvailableUpdate] = useState<Update | null>(null);
-    const [updateDownloaded, setUpdateDownloaded] = useState(false);
-    const [updateBusy, setUpdateBusy] = useState(false);
-    const [updateDismissed, setUpdateDismissed] = useState(false);
+    const [updater] = useState(() => new DesktopUpdater(check));
+    const {
+        update: availableUpdate,
+        downloaded: updateDownloaded,
+        busy: updateBusy,
+        dismissed: updateDismissed,
+    } = useSyncExternalStore(updater.subscribe, updater.getSnapshot);
+    const pendingMutations = useIsMutating();
+    const updateInstallBlocked = editing !== false || appointmentEditing
+        || customerEditing || invoiceEditing || teamEditing || settingsEditing
+        || dailyRevenueEditing || payrollEditing || pendingMutations > 0;
+    const signedInUserId = session?.user.id;
 
     useEffect(() => {
         if (!supabase) return;
@@ -167,35 +177,21 @@ export default function App() {
     }, []);
 
     useEffect(() => {
-        if (!ready || !session || !isTauri()) return;
-        let cancelled = false;
-        void check()
-            .then((update) => {
-                if (cancelled) {
-                    update?.close();
-                    return;
-                }
-                setAvailableUpdate(update);
-                setUpdateDownloaded(false);
-                setUpdateDismissed(false);
-            })
-            .catch(() => undefined);
-        return () => {
-            cancelled = true;
-        };
-    }, [ready, session]);
+        if (!ready || !signedInUserId || !isTauri()) return;
+        void updater.check().catch((error: unknown) => {
+            console.warn("Chưa kiểm tra được bản cập nhật tự động:", error);
+        });
+        return updater.reset;
+    }, [ready, signedInUserId, updater]);
 
     async function checkForUpdates() {
         if (!isTauri()) {
             toast.info("Cập nhật chỉ có trong ứng dụng Windows.");
             return;
         }
-        setUpdateBusy(true);
         try {
-            const update = await check();
-            setAvailableUpdate(update);
-            setUpdateDownloaded(false);
-            setUpdateDismissed(false);
+            const update = await updater.check();
+            if (update === undefined) return;
             toast[update ? "info" : "success"](
                 update
                     ? `Đã có phiên bản ${update.version}.`
@@ -203,50 +199,29 @@ export default function App() {
             );
         } catch {
             toast.error(
-                "Chưa kiểm tra được bản cập nhật. Kiểm tra kết nối rồi thử lại.",
+                "Chưa kiểm tra được bản cập nhật. Kiểm tra kết nối hoặc cấu hình cập nhật rồi thử lại.",
             );
-        } finally {
-            setUpdateBusy(false);
         }
     }
 
     async function downloadUpdate() {
-        if (!availableUpdate) return;
-        setUpdateBusy(true);
         try {
-            await availableUpdate.download();
-            setUpdateDownloaded(true);
-            toast.success(
-                "Đã tải bản cập nhật. Cài đặt khi bạn sẵn sàng khởi động lại.",
-            );
+            if (await updater.download()) {
+                toast.success(
+                    "Đã tải bản cập nhật. Cài đặt khi bạn sẵn sàng khởi động lại.",
+                );
+            }
         } catch {
             toast.error(
                 "Không tải được bản cập nhật. Thử lại khi kết nối ổn định.",
             );
-        } finally {
-            setUpdateBusy(false);
         }
     }
 
     async function installUpdate() {
-        if (
-            !availableUpdate ||
-            save.isPending ||
-            editing !== false ||
-            appointmentEditing ||
-            customerEditing ||
-            invoiceEditing ||
-            teamEditing ||
-            settingsEditing ||
-            dailyRevenueEditing ||
-            payrollEditing
-        )
-            return;
-        setUpdateBusy(true);
         try {
-            await availableUpdate.install();
+            await updater.install(() => updateInstallBlocked || queryClient.isMutating() > 0);
         } catch {
-            setUpdateBusy(false);
             toast.error("Không cài được bản cập nhật. Bạn có thể thử lại sau.");
         }
     }
@@ -725,7 +700,9 @@ export default function App() {
                                     </b>
                                     <small>
                                         {updateDownloaded
-                                            ? "Đã tải xong. Cài đặt sẽ khởi động lại phần mềm."
+                                            ? updateInstallBlocked
+                                                ? "Hãy hoàn tất hoặc hủy dữ liệu đang nhập và chờ thao tác đang chạy kết thúc trước khi cập nhật."
+                                                : "Đã tải xong. Cài đặt sẽ khởi động lại phần mềm."
                                             : "Tải bản cập nhật khi thuận tiện."}
                                     </small>
                                 </span>
@@ -733,17 +710,8 @@ export default function App() {
                             {updateDownloaded ? (
                                 <button
                                     className="primary-button"
-                                    disabled={
-                                        updateBusy ||
-                                        save.isPending ||
-                                        editing !== false ||
-                                        appointmentEditing ||
-                                        customerEditing ||
-                                        invoiceEditing ||
-                                        teamEditing ||
-                                        settingsEditing ||
-                                        dailyRevenueEditing
-                                    }
+                                    disabled={updateBusy || updateInstallBlocked}
+                                    title={updateInstallBlocked ? "Hãy hoàn tất hoặc hủy dữ liệu đang nhập và chờ thao tác đang chạy kết thúc trước khi cập nhật." : undefined}
                                     onClick={() => void installUpdate()}
                                 >
                                     {updateBusy
@@ -763,7 +731,7 @@ export default function App() {
                             )}
                             <button
                                 className="update-dismiss"
-                                onClick={() => setUpdateDismissed(true)}
+                                onClick={updater.dismiss}
                             >
                                 Để sau
                             </button>

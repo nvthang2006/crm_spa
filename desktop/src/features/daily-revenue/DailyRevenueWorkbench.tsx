@@ -1,7 +1,7 @@
 import { Popup } from '../../Popup'
 import { DateInput } from '../../DateInput'
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   CalendarDays,
   Plus,
@@ -19,7 +19,7 @@ import {
 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AppSupabaseClient } from '../../lib/supabase'
-import { commissionBase, previewShiftCommission, recordDailyShift, recordedShiftClassification, validateCommissionOverride, validateShiftEntry, type DailyCommissionRule, type ShiftEntryRow } from '../../lib/dailyRevenue'
+import { commissionBase, hasUnsavedShiftEntries, previewShiftCommission, recordDailyShift, recordedShiftClassification, validateCommissionOverride, validateShiftEntry, type DailyCommissionRule, type ShiftEntryRow } from '../../lib/dailyRevenue'
 import { saveCustomer, type CustomerDraft } from '../../lib/customers'
 import { formatVnd } from '../../lib/offerings'
 import './daily-revenue.css'
@@ -57,17 +57,25 @@ export default function DailyRevenueWorkbench({ client, onEditorStateChange }: P
   const [activePanel, setActivePanel] = useState<'entry' | 'recorded'>('entry')
   const [recordedPage, setRecordedPage] = useState(0)
   const [rows, setRows] = useState<ShiftEntryRow[]>(() => [createBlankRow()])
-  const [saving, setSaving] = useState(false)
   const [newCustomerModal, setNewCustomerModal] = useState<{ open: boolean; targetRowIndex: number }>({ open: false, targetRowIndex: 0 })
   const [newCustomerName, setNewCustomerName] = useState('')
   const [newCustomerPhone, setNewCustomerPhone] = useState('')
-  const [creatingCustomer, setCreatingCustomer] = useState(false)
   const [customerError, setCustomerError] = useState('')
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({})
   const [expandedCommissions, setExpandedCommissions] = useState<Record<string, boolean>>({})
   const saveInProgress = useRef(false)
   const pendingPackages = useRef(new Map<string, { selection: string; packageId: number | null }>())
   const recordedTableScroll = useRef<HTMLDivElement>(null)
+
+  const saveShiftMutation = useMutation({ mutationFn: saveAll })
+  const createCustomerMutation = useMutation({ mutationFn: handleCreateCustomer })
+  const saving = saveShiftMutation.isPending
+  const creatingCustomer = createCustomerMutation.isPending
+  const updateBlocked = hasUnsavedShiftEntries(rows) || saving || creatingCustomer || newCustomerModal.open
+  useEffect(() => {
+    onEditorStateChange?.(updateBlocked)
+    return () => onEditorStateChange?.(false)
+  }, [updateBlocked, onEditorStateChange])
 
   useEffect(() => {
     if (recordedTableScroll.current) recordedTableScroll.current.scrollTop = 0
@@ -234,7 +242,6 @@ export default function DailyRevenueWorkbench({ client, onEditorStateChange }: P
   function closeNewCustomerModal() {
     if (creatingCustomer) return
     setNewCustomerModal({ open: false, targetRowIndex: 0 })
-    if (onEditorStateChange) onEditorStateChange(false)
   }
 
   async function handleCreateCustomer() {
@@ -243,7 +250,6 @@ export default function DailyRevenueWorkbench({ client, onEditorStateChange }: P
       return
     }
     setCustomerError('')
-    setCreatingCustomer(true)
     try {
       const draft: CustomerDraft = {
         code: '',
@@ -265,12 +271,9 @@ export default function DailyRevenueWorkbench({ client, onEditorStateChange }: P
       setNewCustomerModal({ open: false, targetRowIndex: 0 })
       setNewCustomerName('')
       setNewCustomerPhone('')
-      if (onEditorStateChange) onEditorStateChange(false)
     } catch (err: any) {
       setCustomerError(err instanceof Error ? err.message : 'Không thể tạo khách hàng.')
       toast.error(err.message || 'Không thể tạo khách hàng.')
-    } finally {
-      setCreatingCustomer(false)
     }
   }
 
@@ -308,7 +311,6 @@ export default function DailyRevenueWorkbench({ client, onEditorStateChange }: P
     }
 
     saveInProgress.current = true
-    setSaving(true)
     let savedCount = 0
     const remaining = [...rows]
     try {
@@ -331,7 +333,6 @@ export default function DailyRevenueWorkbench({ client, onEditorStateChange }: P
       toast.error(savedCount > 0 ? `Đã lưu ${savedCount} ca. ${message}` : message)
     } finally {
       await refreshRecordedShifts()
-      setSaving(false)
       saveInProgress.current = false
     }
   }
@@ -523,7 +524,6 @@ export default function DailyRevenueWorkbench({ client, onEditorStateChange }: P
                         onClick={() => {
                           setCustomerError('')
                           setNewCustomerModal({ open: true, targetRowIndex: index })
-                          if (onEditorStateChange) onEditorStateChange(true)
                         }}
                         disabled={saving}
                       >
@@ -691,7 +691,7 @@ export default function DailyRevenueWorkbench({ client, onEditorStateChange }: P
             <span>Dự kiến ghi nhận: </span>
             <strong>{rows.length} ca</strong> · Tiền thực thu: <strong>{formatVnd(draftRevenue)} ₫</strong> · Tổng hoa hồng: <strong>{formatVnd(draftCommission)} ₫</strong>
           </div>
-          <button className="primary-button" onClick={saveAll} disabled={saving}>
+          <button className="primary-button" onClick={() => saveShiftMutation.mutate()} disabled={saving}>
             <Save size={16} /> {saving ? 'Đang lưu ca làm…' : 'Lưu tất cả ca làm'}
           </button>
         </div>
@@ -792,7 +792,7 @@ export default function DailyRevenueWorkbench({ client, onEditorStateChange }: P
       </section>
 
       {newCustomerModal.open && <Popup title="Thêm nhanh khách hàng" description="Mã khách hàng được cấp tự động khi lưu." busy={creatingCustomer} error={customerError} onClose={closeNewCustomerModal}>
-        <form onSubmit={(event) => { event.preventDefault(); if (!creatingCustomer) void handleCreateCustomer() }}>
+        <form onSubmit={(event) => { event.preventDefault(); if (!creatingCustomer) createCustomerMutation.mutate() }}>
           <label><span>Họ và tên <b>*</b></span><input autoFocus required maxLength={120} value={newCustomerName} onChange={(event) => setNewCustomerName(event.target.value)} placeholder="Nhập họ và tên" /></label>
           <label>Số điện thoại<input type="tel" maxLength={32} value={newCustomerPhone} onChange={(event) => setNewCustomerPhone(event.target.value)} placeholder="Có thể để trống" /></label>
           <footer><button type="button" className="secondary-button" disabled={creatingCustomer} onClick={closeNewCustomerModal}>Hủy</button><button className="primary-button" disabled={creatingCustomer}>{creatingCustomer ? 'Đang thêm…' : 'Thêm khách hàng'}</button></footer>
