@@ -10,6 +10,7 @@
     "build": "tsc -b && vite build",
     "build:windows": "node scripts/build-windows.mjs",
     "release:windows": "node scripts/release-windows.mjs",
+    "test:updater": "node --experimental-strip-types --test scripts/desktop-updater.test.mjs",
     "test:release": "node --test scripts/release-windows.test.mjs",
     "test:invoice-idempotency": "node --experimental-strip-types --test scripts/invoice-idempotency.test.mjs",
     "lint": "oxlint src"

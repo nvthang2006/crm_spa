@@ -35,11 +35,20 @@
 }
 
 .payroll-date-group {
-  display: flex;
+  display: grid;
+  grid-template-columns: auto minmax(140px, 158px) auto minmax(140px, 158px);
   align-items: center;
   gap: 6px;
+  max-width: 100%;
   color: #60706d;
   font-size: 12px;
+}
+
+@media (max-width: 560px) {
+  .payroll-date-group {
+    grid-template-columns: auto minmax(0, 1fr);
+    width: 100%;
+  }
 }
 
 .payroll-date-input {

@@ -6,7 +6,7 @@ import { Ellipsis, Search, UserRound, UsersRound, WalletCards } from 'lucide-rea
 import { toast } from 'sonner'
 import type { AppSupabaseClient } from '../../lib/supabase'
 import { formatVnd } from '../../lib/offerings'
-import { loadCommissionOptions, loadCommissionRules, loadEmployees, saveCommissionRule, saveEmployee, setCommissionRuleActive, setEmployeeStatus, todayInBusinessTimeZone, type CommissionRule, type CommissionRuleDraft, type Employee, type EmployeeDraft } from '../../lib/team'
+import { createCommissionRuleDraft, loadCommissionOptions, loadCommissionRules, loadEmployees, saveCommissionRule, saveEmployee, setCommissionRuleActive, setEmployeeStatus, validateCommissionRuleDraft, type CommissionRule, type CommissionRuleDraft, type Employee, type EmployeeDraft } from '../../lib/team'
 import './team.css'
 
 type TeamTab = 'employees' | 'commissions'
@@ -15,10 +15,6 @@ type CommissionFilter = 'all' | 'active' | 'inactive'
 
 const emptyEmployee: EmployeeDraft = { code: '', name: '', job_title: '', base_salary: '' }
 const pageSize = 10
-const emptyRule = (): CommissionRuleDraft => ({
-  offering_id: '', beneficiary_type: 'primary_technician', beneficiary_employee_id: '', basis: 'payment',
-  calculation_type: 'percentage', value: '10', starts_on: todayInBusinessTimeZone(), ends_on: '', is_active: true, notes: '',
-})
 
 const beneficiaryLabels: Record<string, string> = {
   primary_technician: 'Kỹ thuật viên chính',
@@ -40,7 +36,7 @@ export default function TeamWorkbench({ client, onEditorStateChange }: { client:
   const [employeeEditing, setEmployeeEditing] = useState<Employee | null | false>(false)
   const [employeeDraft, setEmployeeDraft] = useState<EmployeeDraft>(emptyEmployee)
   const [ruleEditing, setRuleEditing] = useState<CommissionRule | null | false>(false)
-  const [ruleDraft, setRuleDraft] = useState<CommissionRuleDraft>(emptyRule())
+  const [ruleDraft, setRuleDraft] = useState<CommissionRuleDraft>(() => createCommissionRuleDraft())
   const closeEmployeeEditor = useCallback(() => setEmployeeEditing(false), [])
   const closeRuleEditor = useCallback(() => setRuleEditing(false), [])
 
@@ -83,6 +79,7 @@ export default function TeamWorkbench({ client, onEditorStateChange }: { client:
       toast.success(ruleEditing ? 'Đã cập nhật quy tắc hoa hồng.' : 'Đã thêm quy tắc hoa hồng.')
       setRuleEditing(false)
       void queryClient.invalidateQueries({ queryKey: ['team-commission-rules'] })
+      void queryClient.invalidateQueries({ queryKey: ['active-commission-rules'] })
     },
     onError: (error: Error) => toast.error(error.message || 'Không thể lưu quy tắc hoa hồng.'),
   })
@@ -91,6 +88,7 @@ export default function TeamWorkbench({ client, onEditorStateChange }: { client:
     onSuccess: (active) => {
       toast.success(active ? 'Đã kích hoạt quy tắc hoa hồng.' : 'Đã tạm ngưng quy tắc hoa hồng.')
       void queryClient.invalidateQueries({ queryKey: ['team-commission-rules'] })
+      void queryClient.invalidateQueries({ queryKey: ['active-commission-rules'] })
     },
     onError: (error: Error) => toast.error(error.message || 'Không thể cập nhật quy tắc hoa hồng.'),
   })
@@ -131,12 +129,8 @@ export default function TeamWorkbench({ client, onEditorStateChange }: { client:
     setEmployeeEditing(employee ?? null)
   }
   function openRuleEditor(rule?: CommissionRule) {
-    setRuleDraft(rule ? {
-      offering_id: String(rule.offering_id), beneficiary_type: rule.beneficiary_type,
-      beneficiary_employee_id: rule.beneficiary_employee_id ? String(rule.beneficiary_employee_id) : '',
-      basis: rule.basis, calculation_type: rule.calculation_type, value: String(rule.value),
-      starts_on: rule.starts_on, ends_on: rule.ends_on ?? '', is_active: rule.is_active, notes: rule.notes ?? '',
-    } : emptyRule())
+    saveRuleMutation.reset()
+    setRuleDraft(createCommissionRuleDraft(rule))
     setRuleEditing(rule ?? null)
   }
   function submitEmployee(event: FormEvent<HTMLFormElement>) {
@@ -150,21 +144,9 @@ export default function TeamWorkbench({ client, onEditorStateChange }: { client:
   }
   function submitRule(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
-    const value = Number(ruleDraft.value)
-    if (!ruleDraft.offering_id || !ruleDraft.starts_on || !Number.isFinite(value) || value < 0) {
-      toast.error('Hãy kiểm tra dịch vụ, ngày hiệu lực và mức hoa hồng.')
-      return
-    }
-    if (ruleDraft.ends_on && ruleDraft.ends_on < ruleDraft.starts_on) {
-      toast.error('Ngày kết thúc phải bằng hoặc sau ngày bắt đầu.')
-      return
-    }
-    if (ruleDraft.calculation_type === 'percentage' && value > 100) {
-      toast.error('Tỷ lệ phần trăm không được vượt quá 100%.')
-      return
-    }
-    if (['specific_employee', 'performer_employee'].includes(ruleDraft.beneficiary_type) && !ruleDraft.beneficiary_employee_id) {
-      toast.error('Hãy chọn nhân sự nhận hoa hồng.')
+    const validationError = validateCommissionRuleDraft(ruleDraft, ruleEditing ? ruleEditing.id : null)
+    if (validationError) {
+      toast.error(validationError)
       return
     }
     saveRuleMutation.mutate()
@@ -211,10 +193,9 @@ export default function TeamWorkbench({ client, onEditorStateChange }: { client:
         <label className="team-filter"><span className="sr-only">Lọc trạng thái quy tắc</span><select value={ruleFilter} onChange={(event) => { setRuleFilter(event.target.value as CommissionFilter); setRulePage(1) }}><option value="all">Mọi trạng thái</option><option value="active">Đang áp dụng</option><option value="inactive">Tạm ngưng</option></select></label>
         <span className="team-result-count">{visibleRules.length} quy tắc</span>
       </div>
-      {commissionRules.isPending || commissionOptions.isPending ? <div className="team-state">Đang tải quy tắc hoa hồng…</div> : commissionRules.isError || commissionOptions.isError ? <div className="team-state team-error">Chưa tải được danh sách hoa hồng. <button onClick={() => { void commissionRules.refetch(); void commissionOptions.refetch() }}>Thử lại</button></div> : !visibleRules.length ? <div className="team-state"><WalletCards size={26} /><b>{commissionRules.data?.length ? 'Không tìm thấy quy tắc phù hợp' : 'Chưa có quy tắc hoa hồng'}</b><span>{commissionRules.data?.length ? 'Thử đổi từ khóa hoặc bộ lọc trạng thái.' : 'Tạo quy tắc đầu tiên cho một dịch vụ.'}</span>{!commissionRules.data?.length && Boolean(commissionOptions.data?.offerings.length) && <button className="primary-button" onClick={() => openRuleEditor()}>Thêm quy tắc</button>}</div> : <div className="team-table-scroll" ref={tableRef} tabIndex={0} role="region" aria-label="Bảng hoa hồng, có thể cuộn"><table className="team-table commission-table"><thead><tr><th>DỊCH VỤ</th><th>NGƯỜI NHẬN</th><th>CĂN CỨ</th><th>MỨC HƯỞNG</th><th>HIỆU LỰC</th><th>TRẠNG THÁI</th><th><span className="sr-only">Thao tác</span></th></tr></thead><tbody>{ruleRows.map((rule) => <tr key={rule.id}>
+      {commissionRules.isPending || commissionOptions.isPending ? <div className="team-state">Đang tải quy tắc hoa hồng…</div> : commissionRules.isError || commissionOptions.isError ? <div className="team-state team-error">Chưa tải được danh sách hoa hồng. <button onClick={() => { void commissionRules.refetch(); void commissionOptions.refetch() }}>Thử lại</button></div> : !visibleRules.length ? <div className="team-state"><WalletCards size={26} /><b>{commissionRules.data?.length ? 'Không tìm thấy quy tắc phù hợp' : 'Chưa có quy tắc hoa hồng'}</b><span>{commissionRules.data?.length ? 'Thử đổi từ khóa hoặc bộ lọc trạng thái.' : 'Tạo quy tắc đầu tiên cho một dịch vụ.'}</span>{!commissionRules.data?.length && Boolean(commissionOptions.data?.offerings.length) && <button className="primary-button" onClick={() => openRuleEditor()}>Thêm quy tắc</button>}</div> : <div className="team-table-scroll" ref={tableRef} tabIndex={0} role="region" aria-label="Bảng hoa hồng, có thể cuộn"><table className="team-table commission-table"><thead><tr><th>DỊCH VỤ</th><th>NGƯỜI NHẬN</th><th>MỨC HƯỞNG</th><th>HIỆU LỰC</th><th>TRẠNG THÁI</th><th><span className="sr-only">Thao tác</span></th></tr></thead><tbody>{ruleRows.map((rule) => <tr key={rule.id}>
         <td><div className="team-role"><b title={rule.offering?.name}>{rule.offering?.name ?? 'Dịch vụ đã lưu trữ'}</b><small title={rule.offering?.code}>{rule.offering?.code ?? `Mã dịch vụ ${rule.offering_id}`}</small></div></td>
-        <td><div className="team-role"><b>{beneficiaryLabels[rule.beneficiary_type] ?? rule.beneficiary_type}</b><small title={rule.beneficiary_employee?.name}>{rule.beneficiary_employee?.name ?? (rule.beneficiary_employee_id ? `Nhân viên #${rule.beneficiary_employee_id}` : 'Theo phân công dịch vụ')}</small></div></td>
-        <td>{rule.basis === 'payment' ? 'Thanh toán' : 'Hoàn thành'}</td>
+        <td><div className="team-role"><b title={rule.beneficiary_employee?.name}>{rule.beneficiary_employee?.name ?? (rule.beneficiary_employee_id ? `Nhân viên #${rule.beneficiary_employee_id}` : beneficiaryLabels[rule.beneficiary_type] ?? rule.beneficiary_type)}</b><small>{rule.beneficiary_type !== 'performer_employee' ? `${beneficiaryLabels[rule.beneficiary_type] ?? rule.beneficiary_type} · Quy tắc cũ` : rule.basis === 'payment' ? 'Khi thanh toán · Quy tắc cũ' : 'Khi ghi nhận ca thành công'}</small></div></td>
         <td className="team-money">{rule.calculation_type === 'percentage' ? `${Number(rule.value).toLocaleString('vi-VN')}%` : `${formatVnd(Number(rule.value))} ₫`}</td>
         <td><div className="team-role"><b>{formatDate(rule.starts_on)} →</b><small>{rule.ends_on ? formatDate(rule.ends_on) : 'Vô thời hạn'}</small></div></td>
         <td><span className={`status ${rule.is_active ? 'active' : 'inactive'}`}><i />{rule.is_active ? 'Đang áp dụng' : 'Tạm ngưng'}</span></td>
@@ -237,8 +218,15 @@ export default function TeamWorkbench({ client, onEditorStateChange }: { client:
     {ruleEditing !== false && <DialogShell title={ruleEditing ? 'Cập nhật quy tắc hoa hồng' : 'Thêm quy tắc hoa hồng'} description="Quy tắc mới chỉ áp dụng cho giao dịch phát sinh trong thời hạn hiệu lực." busy={saveRuleMutation.isPending} error={saveRuleMutation.error?.message} onClose={closeRuleEditor}>
       <form className="team-form" onSubmit={submitRule}>
         <label><span>Dịch vụ hoặc gói liệu trình <b>*</b></span><select autoFocus required value={ruleDraft.offering_id} onChange={(event) => setRuleDraft({ ...ruleDraft, offering_id: event.target.value })}><option value="">Chọn dịch vụ</option>{commissionOptions.data?.offerings.map((offering) => <option key={offering.id} value={offering.id}>{offering.name} · {offering.type === 'package' ? 'Gói liệu trình' : 'Dịch vụ'}{offering.status !== 'active' ? ' · Tạm ngưng' : ''}</option>)}</select></label>
-        <div className="team-form-grid"><label><span>Người nhận hoa hồng <b>*</b></span><select required value={ruleDraft.beneficiary_type} onChange={(event) => setRuleDraft({ ...ruleDraft, beneficiary_type: event.target.value, beneficiary_employee_id: '' })}>{Object.entries(beneficiaryLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>{['specific_employee', 'performer_employee'].includes(ruleDraft.beneficiary_type) && <label><span>Nhân viên <b>*</b></span><select required value={ruleDraft.beneficiary_employee_id} onChange={(event) => setRuleDraft({ ...ruleDraft, beneficiary_employee_id: event.target.value })}><option value="">Chọn nhân viên</option>{(commissionOptions.data?.employees ?? []).filter((employee) => ruleDraft.beneficiary_type !== 'performer_employee' || employee.status === 'active' || (ruleEditing && employee.id === ruleEditing.beneficiary_employee_id)).map((employee) => <option key={employee.id} value={employee.id}>{employee.name} · {employee.code}{employee.status !== 'active' ? ' · Tạm ngưng' : ''}</option>)}</select></label>}</div>
-        <div className="team-form-grid"><label><span>Căn cứ tính <b>*</b></span><select value={ruleDraft.basis} onChange={(event) => setRuleDraft({ ...ruleDraft, basis: event.target.value })}><option value="payment">Thanh toán</option><option value="completion">Hoàn thành</option></select></label><label><span>Loại mức hưởng <b>*</b></span><select value={ruleDraft.calculation_type} onChange={(event) => setRuleDraft({ ...ruleDraft, calculation_type: event.target.value })}><option value="percentage">Phần trăm</option><option value="fixed">Số tiền cố định (₫)</option></select></label></div>
+        {ruleEditing && (ruleEditing.beneficiary_type !== 'performer_employee' || ruleEditing.basis !== 'completion') && <div className="team-legacy-rule-note" role="note">
+          <strong>Giữ cách áp dụng của quy tắc cũ</strong>
+          <p>Người nhận: {ruleEditing.beneficiary_employee?.name ?? (ruleEditing.beneficiary_employee_id ? `Nhân viên #${ruleEditing.beneficiary_employee_id}` : beneficiaryLabels[ruleEditing.beneficiary_type] ?? ruleEditing.beneficiary_type)} · {beneficiaryLabels[ruleEditing.beneficiary_type] ?? ruleEditing.beneficiary_type}. Ghi nhận {ruleEditing.basis === 'payment' ? 'khi thanh toán' : 'khi hoàn thành dịch vụ'}.</p>
+          <p>Các thay đổi ở đây giữ nguyên cách áp dụng cũ. Để tính hoa hồng cho nhân viên trực tiếp thực hiện khi ghi nhận ca thành công, hãy thêm mức mới và tạm ngưng quy tắc cũ nếu không còn dùng.</p>
+          <button type="button" className="secondary-button" disabled={saveRuleMutation.isPending} onClick={() => { openRuleEditor(); setRuleDraft({ ...createCommissionRuleDraft(), offering_id: ruleDraft.offering_id }) }}>Tạo mức theo nhân viên</button>
+        </div>}
+        {ruleDraft.beneficiary_type === 'performer_employee' && <label><span>Người nhận hoa hồng <b>*</b></span><select required value={ruleDraft.beneficiary_employee_id} onChange={(event) => setRuleDraft({ ...ruleDraft, beneficiary_employee_id: event.target.value })}><option value="">Chọn nhân viên</option>{ruleEditing && ruleEditing.beneficiary_employee_id && !commissionOptions.data?.employees.some((employee) => employee.id === ruleEditing.beneficiary_employee_id) && <option value={ruleEditing.beneficiary_employee_id}>{ruleEditing.beneficiary_employee?.name ?? `Nhân viên #${ruleEditing.beneficiary_employee_id}`} · Đã lưu trữ</option>}{(commissionOptions.data?.employees ?? []).filter((employee) => employee.status === 'active' || (ruleEditing && employee.id === ruleEditing.beneficiary_employee_id)).map((employee) => <option key={employee.id} value={employee.id}>{employee.name} · {employee.code}{employee.status !== 'active' ? ' · Tạm ngưng' : ''}</option>)}</select></label>}
+        {ruleDraft.beneficiary_type === 'performer_employee' && ruleDraft.basis === 'completion' && <p className="team-form-hint">Nhân viên được chọn chỉ nhận hoa hồng khi trực tiếp thực hiện dịch vụ và ghi nhận ca thành công.</p>}
+        <label><span>Loại mức hưởng <b>*</b></span><select value={ruleDraft.calculation_type} onChange={(event) => setRuleDraft({ ...ruleDraft, calculation_type: event.target.value })}><option value="percentage">Phần trăm</option><option value="fixed">Số tiền cố định (₫)</option></select></label>
         <div className="team-form-grid"><label><span>{ruleDraft.calculation_type === 'percentage' ? 'Tỷ lệ (%)' : 'Số tiền (₫)'} <b>*</b></span><input required type="number" min="0" max={ruleDraft.calculation_type === 'percentage' ? 100 : undefined} step="0.01" value={ruleDraft.value} onChange={(event) => setRuleDraft({ ...ruleDraft, value: event.target.value })} /></label><label><span>Ngày bắt đầu <b>*</b></span><DateInput required label="Ngày bắt đầu" value={ruleDraft.starts_on} onChange={(value) => setRuleDraft({ ...ruleDraft, starts_on: value })} /></label></div>
         <div className="team-form-grid"><label>Ngày kết thúc<DateInput label="Ngày kết thúc" min={ruleDraft.starts_on} value={ruleDraft.ends_on} onChange={(value) => setRuleDraft({ ...ruleDraft, ends_on: value })} /></label><label className="team-checkbox"><input type="checkbox" checked={ruleDraft.is_active} onChange={(event) => setRuleDraft({ ...ruleDraft, is_active: event.target.checked })} /> Đang áp dụng</label></div>
         <label>Ghi chú<textarea rows={3} maxLength={1000} value={ruleDraft.notes} onChange={(event) => setRuleDraft({ ...ruleDraft, notes: event.target.value })} placeholder="Ghi chú nội bộ nếu cần" /></label>

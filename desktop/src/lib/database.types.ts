@@ -1492,6 +1492,23 @@ export type Database = {
         };
         Functions: {
             // Sinh bằng Supabase CLI; kiểu null của tham số RPC được đối chiếu với migration PostgreSQL.
+            record_daily_shift: {
+                Args: {
+                    p_request_id: string;
+                    p_customer_id: number;
+                    p_offering_id: number;
+                    p_employee_id: number;
+                    p_classification: string;
+                    p_collected: number;
+                    p_work_date: string;
+                    p_payment_method: string;
+                    p_customer_package_id?: number | null;
+                    p_commission_type?: string | null;
+                    p_commission_value?: number | null;
+                    p_notes?: string | null;
+                };
+                Returns: Json;
+            };
             complete_appointment: { Args: { p_appointment_id: number }; Returns: Json };
             consume_customer_package_session: {
                 Args: {

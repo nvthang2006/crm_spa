@@ -18,24 +18,39 @@ export type PayrollAdjustmentDraft = {
   reason: string
 }
 
-export function getCurrentMonthRange(): { start: string; end: string } {
-  const now = new Date()
-  const year = now.getFullYear()
-  const month = now.getMonth() // 0-based
-  const startDate = new Date(year, month, 1)
-  const endDate = new Date(year, month + 1, 0)
+export function getCurrentMonthRange(now = new Date()): { start: string; end: string } {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(now)
+  const year = Number(parts.find((part) => part.type === 'year')?.value)
+  const month = Number(parts.find((part) => part.type === 'month')?.value)
+  const prefix = `${year}-${String(month).padStart(2, '0')}`
+  const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate()
+  return { start: `${prefix}-01`, end: `${prefix}-${lastDay}` }
+}
 
-  const format = (d: Date) => {
-    const y = d.getFullYear()
-    const m = String(d.getMonth() + 1).padStart(2, '0')
-    const day = String(d.getDate()).padStart(2, '0')
-    return `${y}-${m}-${day}`
+export function validatePayrollRange(start: string, end: string): void {
+  const validDate = (value: string): boolean => {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+    const parsed = new Date(`${value}T00:00:00Z`)
+    return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value
   }
+  if (!validDate(start)) throw new Error('Vui lòng nhập ngày bắt đầu hợp lệ theo dd/mm/yyyy.')
+  if (!validDate(end)) throw new Error('Vui lòng nhập ngày kết thúc hợp lệ theo dd/mm/yyyy.')
+  if (end < start) throw new Error('Ngày kết thúc kỳ lương phải bằng hoặc sau ngày bắt đầu.')
+}
 
-  return {
-    start: format(startDate),
-    end: format(endDate),
+export function getPayrollErrorMessage(error: unknown, fallback = 'Chưa xử lý được bảng lương. Vui lòng thử lại.'): string {
+  const details = error && typeof error === 'object' ? error as { code?: unknown; message?: unknown } : {}
+  const code = typeof details.code === 'string' ? details.code : ''
+  const message = typeof details.message === 'string' ? details.message : ''
+  if (code === 'PGRST202' || /Could not find the function|schema cache/i.test(message)) {
+    return 'Hệ thống chưa cập nhật đầy đủ chức năng bảng lương. Vui lòng cập nhật cơ sở dữ liệu rồi thử lại.'
   }
+  if (code === '42501' || code === 'PGRST301') return 'Tài khoản không có quyền quản lý bảng lương hoặc phiên đăng nhập đã hết hạn.'
+  if (/fetch|network|timeout|Failed to fetch/i.test(message)) return 'Không kết nối được máy chủ. Kiểm tra kết nối rồi thử lại.'
+  if (/[À-ỹ]/.test(message)) return message
+  return fallback
 }
 
 export async function loadPayrollPeriods(client: AppSupabaseClient): Promise<PayrollPeriod[]> {
@@ -95,6 +110,7 @@ export async function generatePayroll(
   periodStart: string,
   periodEnd: string
 ): Promise<PayrollPeriod> {
+  validatePayrollRange(periodStart, periodEnd)
   const { data, error } = await client.rpc('generate_payroll', {
     p_period_start: periodStart,
     p_period_end: periodEnd,
@@ -124,12 +140,13 @@ export async function createPayrollAdjustment(
   const employeeId = Number(draft.employee_id)
   const amount = Number(draft.amount)
 
-  if (!employeeId || isNaN(employeeId)) {
+  if (!Number.isSafeInteger(employeeId) || employeeId <= 0) {
     throw new Error('Vui lòng chọn nhân viên.')
   }
-  if (!amount || amount <= 0 || isNaN(amount)) {
-    throw new Error('Số tiền điều chỉnh phải lớn hơn 0.')
+  if (!Number.isSafeInteger(amount) || amount <= 0) {
+    throw new Error('Số tiền điều chỉnh phải là số nguyên lớn hơn 0.')
   }
+  if (!['bonus', 'deduction'].includes(draft.type)) throw new Error('Vui lòng chọn loại điều chỉnh hợp lệ.')
   if (!draft.reason.trim()) {
     throw new Error('Vui lòng nhập lý do điều chỉnh.')
   }

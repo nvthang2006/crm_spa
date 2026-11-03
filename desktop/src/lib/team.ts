@@ -50,6 +50,53 @@ export type CommissionRuleDraft = {
   notes: string
 }
 
+export function createCommissionRuleDraft(rule?: CommissionRule): CommissionRuleDraft {
+  if (rule) {
+    return {
+      offering_id: String(rule.offering_id),
+      beneficiary_type: rule.beneficiary_type,
+      beneficiary_employee_id: rule.beneficiary_employee_id ? String(rule.beneficiary_employee_id) : '',
+      basis: rule.basis,
+      calculation_type: rule.calculation_type,
+      value: String(rule.value),
+      starts_on: rule.starts_on,
+      ends_on: rule.ends_on ?? '',
+      is_active: rule.is_active,
+      notes: rule.notes ?? '',
+    }
+  }
+
+  return {
+    offering_id: '', beneficiary_type: 'performer_employee', beneficiary_employee_id: '', basis: 'completion',
+    calculation_type: 'percentage', value: '10', starts_on: todayInBusinessTimeZone(), ends_on: '', is_active: true, notes: '',
+  }
+}
+
+export function validateCommissionRuleDraft(draft: CommissionRuleDraft, ruleId: number | null): string | null {
+  const value = Number(draft.value)
+  if (!/^[1-9]\d*$/.test(draft.offering_id) || !draft.starts_on || !draft.value.trim() || !Number.isFinite(value) || value < 0) {
+    return 'Hãy kiểm tra dịch vụ, ngày hiệu lực và mức hoa hồng.'
+  }
+  if (!['primary_technician', 'support_technician', 'specific_employee', 'performer_employee'].includes(draft.beneficiary_type)
+    || !['payment', 'completion'].includes(draft.basis)
+    || !['percentage', 'fixed'].includes(draft.calculation_type)) {
+    return 'Thông tin quy tắc hoa hồng chưa hợp lệ.'
+  }
+  if (ruleId === null && (draft.beneficiary_type !== 'performer_employee' || draft.basis !== 'completion')) {
+    return 'Quy tắc mới phải áp dụng cho nhân viên thực hiện khi ghi nhận ca thành công.'
+  }
+  if (['specific_employee', 'performer_employee'].includes(draft.beneficiary_type) && !/^[1-9]\d*$/.test(draft.beneficiary_employee_id)) {
+    return 'Hãy chọn nhân viên nhận hoa hồng.'
+  }
+  if (draft.ends_on && draft.ends_on < draft.starts_on) {
+    return 'Ngày kết thúc phải bằng hoặc sau ngày bắt đầu.'
+  }
+  if (draft.calculation_type === 'percentage' && value > 100) {
+    return 'Tỷ lệ phần trăm không được vượt quá 100%.'
+  }
+  return null
+}
+
 export type BusinessSettings = {
   id: number
   business_name: string
@@ -116,6 +163,8 @@ export async function loadCommissionRules(client: AppSupabaseClient): Promise<Co
 }
 
 export async function saveCommissionRule(client: AppSupabaseClient, draft: CommissionRuleDraft, ruleId: number | null): Promise<number> {
+  const validationError = validateCommissionRuleDraft(draft, ruleId)
+  if (validationError) throw new Error(validationError)
   const { data, error } = await client.rpc('save_commission_rule', {
     p_rule_id: ruleId,
     p_offering_id: Number(draft.offering_id),
