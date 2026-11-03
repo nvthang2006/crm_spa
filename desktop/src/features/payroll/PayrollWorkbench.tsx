@@ -13,6 +13,8 @@ import { toast } from 'sonner'
 import type { AppSupabaseClient } from '../../lib/supabase'
 import {
   getCurrentMonthRange,
+  getPayrollErrorMessage,
+  validatePayrollRange,
   loadPayrollPeriods,
   loadPayrollPeriodById,
   generatePayroll,
@@ -25,6 +27,7 @@ import {
 import { loadEmployees } from '../../lib/team'
 import { formatVnd } from '../../lib/offerings'
 import { Popup } from '../../Popup'
+import { DateInput } from '../../DateInput'
 import './payroll.css'
 
 type Props = {
@@ -49,6 +52,7 @@ export default function PayrollWorkbench({ client, onEditorStateChange }: Props)
   const [showAdjustmentModal, setShowAdjustmentModal] = useState(false)
   const [adjustmentDraft, setAdjustmentDraft] = useState<PayrollAdjustmentDraft>(emptyAdjustment)
   const [adjError, setAdjError] = useState<string | undefined>()
+  const [rangeError, setRangeError] = useState<string | undefined>()
 
   // Load list of periods
   const periodsQuery = useQuery({
@@ -88,8 +92,8 @@ export default function PayrollWorkbench({ client, onEditorStateChange }: Props)
       queryClient.invalidateQueries({ queryKey: ['payroll-periods'] })
       queryClient.invalidateQueries({ queryKey: ['payroll-period-detail', data.id] })
     },
-    onError: (err: any) => {
-      toast.error(err.message || 'Lỗi khi tính bảng lương.')
+    onError: (err: unknown) => {
+      toast.error(getPayrollErrorMessage(err, 'Chưa tính được bảng lương. Vui lòng thử lại.'))
     },
   })
 
@@ -101,8 +105,8 @@ export default function PayrollWorkbench({ client, onEditorStateChange }: Props)
       queryClient.invalidateQueries({ queryKey: ['payroll-periods'] })
       queryClient.invalidateQueries({ queryKey: ['payroll-period-detail', data.id] })
     },
-    onError: (err: any) => {
-      toast.error(err.message || 'Lỗi khi chốt kỳ lương.')
+    onError: (err: unknown) => {
+      toast.error(getPayrollErrorMessage(err, 'Chưa chốt được kỳ lương. Vui lòng thử lại.'))
     },
   })
 
@@ -120,8 +124,8 @@ export default function PayrollWorkbench({ client, onEditorStateChange }: Props)
       queryClient.invalidateQueries({ queryKey: ['payroll-periods'] })
       queryClient.invalidateQueries({ queryKey: ['payroll-period-detail', activePeriodId] })
     },
-    onError: (err: any) => {
-      setAdjError(err.message || 'Lỗi khi tạo phiếu điều chỉnh.')
+    onError: (err: unknown) => {
+      setAdjError(getPayrollErrorMessage(err, 'Chưa tạo được phiếu điều chỉnh. Vui lòng thử lại.'))
     },
   })
 
@@ -134,8 +138,8 @@ export default function PayrollWorkbench({ client, onEditorStateChange }: Props)
       queryClient.invalidateQueries({ queryKey: ['payroll-periods'] })
       queryClient.invalidateQueries({ queryKey: ['payroll-period-detail', activePeriodId] })
     },
-    onError: (err: any) => {
-      toast.error(err.message || 'Lỗi khi duyệt phiếu điều chỉnh.')
+    onError: (err: unknown) => {
+      toast.error(getPayrollErrorMessage(err, 'Chưa duyệt được phiếu điều chỉnh. Vui lòng thử lại.'))
     },
   })
 
@@ -153,6 +157,18 @@ export default function PayrollWorkbench({ client, onEditorStateChange }: Props)
       net: currentPeriod.total_net_pay,
     }
   }, [currentPeriod])
+
+  const payrollBusy = generateMutation.isPending || lockMutation.isPending || adjustmentMutation.isPending || reviewMutation.isPending
+
+  const calculatePayroll = () => {
+    try {
+      validatePayrollRange(periodStart, periodEnd)
+      setRangeError(undefined)
+      generateMutation.mutate()
+    } catch (error) {
+      setRangeError(getPayrollErrorMessage(error))
+    }
+  }
 
   const openAdjustmentEditor = () => {
     setAdjustmentDraft(emptyAdjustment)
@@ -177,23 +193,29 @@ export default function PayrollWorkbench({ client, onEditorStateChange }: Props)
         <div className="payroll-heading-actions">
           <div className="payroll-date-group">
             <span>Từ:</span>
-            <input
-              type="date"
-              className="payroll-date-input"
+            <DateInput
+              label="Ngày bắt đầu kỳ lương"
+              required
               value={periodStart}
-              onChange={(e) => {
-                setPeriodStart(e.target.value)
+              max={periodEnd || undefined}
+              disabled={payrollBusy}
+              onChange={(value) => {
+                setPeriodStart(value)
                 setSelectedPeriodId(null)
+                setRangeError(undefined)
               }}
             />
             <span>Đến:</span>
-            <input
-              type="date"
-              className="payroll-date-input"
+            <DateInput
+              label="Ngày kết thúc kỳ lương"
+              required
               value={periodEnd}
-              onChange={(e) => {
-                setPeriodEnd(e.target.value)
+              min={periodStart || undefined}
+              disabled={payrollBusy}
+              onChange={(value) => {
+                setPeriodEnd(value)
                 setSelectedPeriodId(null)
+                setRangeError(undefined)
               }}
             />
           </div>
@@ -211,14 +233,28 @@ export default function PayrollWorkbench({ client, onEditorStateChange }: Props)
           <button
             type="button"
             className="primary-button"
-            disabled={generateMutation.isPending}
-            onClick={() => generateMutation.mutate()}
+            disabled={payrollBusy || periodsQuery.isPending || periodDetailQuery.isFetching || currentPeriod?.status === 'locked'}
+            onClick={calculatePayroll}
           >
             <Calculator size={15} />
             {generateMutation.isPending ? 'Đang tính toán…' : 'Tính bảng lương'}
           </button>
         </div>
       </div>
+
+      {rangeError && <div className="error-box" role="alert">{rangeError}</div>}
+      {periodsQuery.isError && (
+        <div className="error-box" role="alert">
+          {getPayrollErrorMessage(periodsQuery.error, 'Chưa tải được danh sách kỳ lương.')}
+          <button type="button" onClick={() => void periodsQuery.refetch()}>Thử lại</button>
+        </div>
+      )}
+      {periodDetailQuery.isError && (
+        <div className="error-box" role="alert">
+          {getPayrollErrorMessage(periodDetailQuery.error, 'Chưa tải được chi tiết kỳ lương.')}
+          <button type="button" onClick={() => void periodDetailQuery.refetch()}>Thử lại</button>
+        </div>
+      )}
 
       {/* KPI Cards */}
       <div className="payroll-summary-grid">
@@ -266,6 +302,7 @@ export default function PayrollWorkbench({ client, onEditorStateChange }: Props)
                     <button
                       type="button"
                       className="secondary-button"
+                      disabled={payrollBusy || periodDetailQuery.isFetching}
                       onClick={openAdjustmentEditor}
                     >
                       <Plus size={14} /> Thêm phiếu điều chỉnh
@@ -273,7 +310,7 @@ export default function PayrollWorkbench({ client, onEditorStateChange }: Props)
                     <button
                       type="button"
                       className="primary-button"
-                      disabled={lockMutation.isPending}
+                      disabled={payrollBusy || periodDetailQuery.isFetching}
                       onClick={() => {
                         if (
                           window.confirm(
@@ -293,7 +330,11 @@ export default function PayrollWorkbench({ client, onEditorStateChange }: Props)
           </div>
         </div>
 
-        {currentPeriod ? (
+        {periodsQuery.isPending || (activePeriodId && periodDetailQuery.isPending) ? (
+          <div className="payroll-empty" role="status">Đang tải bảng lương…</div>
+        ) : periodsQuery.isError || periodDetailQuery.isError ? (
+          <div className="payroll-empty">Dữ liệu bảng lương chưa tải được. Vui lòng thử lại.</div>
+        ) : currentPeriod ? (
           <div className="payroll-table-scroll">
             <table className="payroll-table">
               <thead>
@@ -420,6 +461,7 @@ export default function PayrollWorkbench({ client, onEditorStateChange }: Props)
                               type="button"
                               className="secondary-button"
                               style={{ padding: '0 8px', height: '30px' }}
+                              disabled={payrollBusy}
                               title="Duyệt"
                               onClick={() =>
                                 reviewMutation.mutate({ id: adj.id, approve: true })
@@ -431,6 +473,7 @@ export default function PayrollWorkbench({ client, onEditorStateChange }: Props)
                               type="button"
                               className="secondary-button"
                               style={{ padding: '0 8px', height: '30px' }}
+                              disabled={payrollBusy}
                               title="Từ chối"
                               onClick={() =>
                                 reviewMutation.mutate({ id: adj.id, approve: false })
@@ -475,7 +518,11 @@ export default function PayrollWorkbench({ client, onEditorStateChange }: Props)
               </tr>
             </thead>
             <tbody>
-              {(periodsQuery.data ?? []).length === 0 ? (
+              {periodsQuery.isPending ? (
+                <tr><td colSpan={7} role="status">Đang tải danh sách kỳ lương…</td></tr>
+              ) : periodsQuery.isError ? (
+                <tr><td colSpan={7}>Chưa tải được danh sách kỳ lương.</td></tr>
+              ) : (periodsQuery.data ?? []).length === 0 ? (
                 <tr>
                   <td colSpan={7} style={{ textAlign: 'center', padding: '24px' }}>
                     Chưa có kỳ lương nào được tạo.
@@ -503,7 +550,9 @@ export default function PayrollWorkbench({ client, onEditorStateChange }: Props)
                         type="button"
                         className="secondary-button"
                         style={{ height: '30px' }}
+                        disabled={payrollBusy}
                         onClick={() => {
+                          setRangeError(undefined)
                           setSelectedPeriodId(p.id)
                           setPeriodStart(p.period_start)
                           setPeriodEnd(p.period_end)
@@ -546,13 +595,16 @@ export default function PayrollWorkbench({ client, onEditorStateChange }: Props)
                   }
                 >
                   <option value="">-- Chọn nhân viên --</option>
-                  {(employeesQuery.data ?? []).map((emp) => (
+                  {(employeesQuery.data ?? []).filter((emp) => currentLines.some((line) => line.employee_id === emp.id)).map((emp) => (
                     <option key={emp.id} value={emp.id}>
                       {emp.code} · {emp.name} ({emp.job_title})
                     </option>
                   ))}
                 </select>
               </label>
+
+              {employeesQuery.isPending && <p role="status">Đang tải nhân viên…</p>}
+              {employeesQuery.isError && <p className="form-error" role="alert">Chưa tải được nhân viên. Đóng và mở lại để thử lại.</p>}
 
               <div className="form-grid">
                 <label>
@@ -575,8 +627,8 @@ export default function PayrollWorkbench({ client, onEditorStateChange }: Props)
                   Số tiền (₫) <b>*</b>
                   <input
                     type="number"
-                    min="1000"
-                    step="1000"
+                    min="1"
+                    step="1"
                     required
                     placeholder="VD: 200000"
                     value={adjustmentDraft.amount}

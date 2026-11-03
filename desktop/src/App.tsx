@@ -357,8 +357,10 @@ export default function App() {
 
             const packageSessions = paidInvoices.filter(
                 (inv) =>
-                    inv.customer_package_id !== null ||
-                    (inv.notes && inv.notes.includes("làm gói")),
+                    inv.notes?.startsWith("[Ca gói]") ||
+                    (!inv.notes?.startsWith("[Ca lẻ]") &&
+                        (inv.customer_package_id !== null ||
+                            (inv.notes && inv.notes.includes("làm gói")))),
             ).length;
             const retailSessions = paidInvoices.length - packageSessions;
             const uniqueCustomersToday = new Set(
@@ -379,8 +381,10 @@ export default function App() {
                     );
                     const empPkg = empInvoices.filter(
                         (inv) =>
-                            inv.customer_package_id !== null ||
-                            (inv.notes && inv.notes.includes("làm gói")),
+                            inv.notes?.startsWith("[Ca gói]") ||
+                            (!inv.notes?.startsWith("[Ca lẻ]") &&
+                                (inv.customer_package_id !== null ||
+                                    (inv.notes && inv.notes.includes("làm gói")))),
                     ).length;
                     const empRetail = empInvoices.length - empPkg;
                     const empRevenue = empInvoices.reduce(
@@ -504,7 +508,7 @@ export default function App() {
         return (
             <div className="center-state">
                 <div className="brand-mark">
-                    <Flower2 />
+                    <img src="/sunny-spa-logo.png" alt="Sunny Spa" />
                 </div>
                 <span>Đang mở CRM Spa…</span>
             </div>
@@ -515,7 +519,7 @@ export default function App() {
                 <Brand />
                 <section className="auth-card">
                     <div className="auth-flower">
-                        <Flower2 />
+                        <img src="/sunny-spa-logo.png" alt="Sunny Spa" />
                     </div>
                     <span className="eyebrow">CHÀO MỪNG TRỞ LẠI</span>
                     <h1>Đăng nhập</h1>
@@ -772,6 +776,7 @@ export default function App() {
                         "team",
                         "settings",
                         "daily-revenue",
+                        "payroll",
                     ].includes(section) && (
                         <div className="page-heading">
                             <div>
@@ -779,13 +784,12 @@ export default function App() {
                                     {day.toLocaleUpperCase("vi-VN")}
                                 </span>
                                 <h1>{title}</h1>
-                                <p>
-                                    {section === "overview"
-                                        ? "Theo dõi hoạt động và tiến độ kinh doanh hôm nay."
-                                        : section === "services"
-                                          ? "Quản lý danh mục dịch vụ và các gói liệu trình."
-                                          : "Khu vực này sẽ được chuyển ở giai đoạn tiếp theo."}
-                                </p>
+                                {section === "services" && (
+                                    <p>
+                                        Quản lý danh mục dịch vụ và các gói liệu
+                                        trình.
+                                    </p>
+                                )}
                             </div>
                             {section === "services" && (
                                 <button
@@ -1098,10 +1102,13 @@ export default function App() {
                                     />
                                 )}
                             </div>
-                            <details className="overview-shortcuts">
-                                <summary>
+                            <section
+                                className="overview-shortcuts"
+                                aria-labelledby="overview-shortcuts-heading"
+                            >
+                                <h2 id="overview-shortcuts-heading">
                                     Truy cập nhanh & không gian làm việc
-                                </summary>
+                                </h2>
                                 <div className="quick-links">
                                     <button
                                         onClick={() =>
@@ -1172,7 +1179,7 @@ export default function App() {
                                         <Flower2 size={76} />
                                     </div>
                                 </section>
-                            </details>
+                            </section>
                         </>
                     )}
                     {section === "services" && (
@@ -1579,11 +1586,11 @@ function Brand({ onSelect }: { onSelect?: () => void }) {
             }}
         >
             <span className="brand-mark" aria-hidden="true">
-                <Flower2 size={20} />
+                <img src="/sunny-spa-logo.png" alt="" />
             </span>
             <span className="brand-copy">
                 <b>
-                    Sunny <span>Beauty</span>
+                    Sunny <span>Spa</span>
                 </b>
                 <small>Bàn điều hành spa</small>
             </span>

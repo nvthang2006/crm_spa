@@ -13,39 +13,18 @@ import {
   UserPlus,
   Receipt,
   User,
+  SlidersHorizontal,
+  ChevronDown,
+  RotateCcw,
 } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AppSupabaseClient } from '../../lib/supabase'
-import { createInvoice, payInvoice, consumeCustomerPackage, type InvoiceMethod } from '../../lib/invoices'
+import { commissionBase, previewShiftCommission, recordDailyShift, recordedShiftClassification, validateCommissionOverride, validateShiftEntry, type DailyCommissionRule, type ShiftEntryRow } from '../../lib/dailyRevenue'
 import { saveCustomer, type CustomerDraft } from '../../lib/customers'
 import { formatVnd } from '../../lib/offerings'
 import './daily-revenue.css'
 
-export type SessionClassification = 'retail' | 'package'
-
-export type ShiftEntryRow = {
-  tempId: string
-  classification: SessionClassification
-  customerId: number | ''
-  offeringId: number | ''
-  technicianId: number | ''
-  collected: number
-  paymentMethod: InvoiceMethod
-  selectedPackageId: number | null
-  notes: string
-}
-
-type CommissionRule = {
-  id: number
-  offering_id: number
-  beneficiary_type: string
-  beneficiary_employee_id: number | null
-  calculation_type: string
-  value: number
-  starts_on: string
-  ends_on: string | null
-  is_active: boolean
-}
+export type { SessionClassification, ShiftEntryRow } from '../../lib/dailyRevenue'
 
 type Props = {
   client: AppSupabaseClient
@@ -62,7 +41,8 @@ function createBlankRow(): ShiftEntryRow {
     technicianId: '',
     collected: 0,
     paymentMethod: 'cash',
-    selectedPackageId: null,
+    commissionType: 'percentage',
+    commissionValue: '',
     notes: '',
   }
 }
@@ -71,18 +51,22 @@ function getTodayDateString(): string {
   return new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Ho_Chi_Minh' })
 }
 
-export default function DailyRevenueWorkbench({ client, onOpenInvoices, onEditorStateChange }: Props) {
+export default function DailyRevenueWorkbench({ client, onEditorStateChange }: Props) {
   const queryClient = useQueryClient()
   const [selectedDate, setSelectedDate] = useState(getTodayDateString)
   const [activePanel, setActivePanel] = useState<'entry' | 'recorded'>('entry')
   const [recordedPage, setRecordedPage] = useState(0)
-  const [rows, setRows] = useState<ShiftEntryRow[]>([createBlankRow()])
+  const [rows, setRows] = useState<ShiftEntryRow[]>(() => [createBlankRow()])
   const [saving, setSaving] = useState(false)
   const [newCustomerModal, setNewCustomerModal] = useState<{ open: boolean; targetRowIndex: number }>({ open: false, targetRowIndex: 0 })
   const [newCustomerName, setNewCustomerName] = useState('')
   const [newCustomerPhone, setNewCustomerPhone] = useState('')
   const [creatingCustomer, setCreatingCustomer] = useState(false)
   const [customerError, setCustomerError] = useState('')
+  const [rowErrors, setRowErrors] = useState<Record<string, string>>({})
+  const [expandedCommissions, setExpandedCommissions] = useState<Record<string, boolean>>({})
+  const saveInProgress = useRef(false)
+  const pendingPackages = useRef(new Map<string, { selection: string; packageId: number | null }>())
   const recordedTableScroll = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -141,10 +125,10 @@ export default function DailyRevenueWorkbench({ client, onOpenInvoices, onEditor
     queryFn: async () => {
       const { data, error } = await client
         .from('commission_rules')
-        .select('id, offering_id, beneficiary_type, beneficiary_employee_id, calculation_type, value, starts_on, ends_on, is_active')
+        .select('id, offering_id, beneficiary_type, beneficiary_employee_id, basis, calculation_type, value, starts_on, ends_on, is_active')
         .eq('is_active', true)
       if (error) throw error
-      return (data ?? []) as CommissionRule[]
+      return (data ?? []) as DailyCommissionRule[]
     },
   })
 
@@ -154,7 +138,7 @@ export default function DailyRevenueWorkbench({ client, onOpenInvoices, onEditor
     queryFn: async () => {
       const { data, error } = await client
         .from('customer_packages')
-        .select('id, customer_id, offering_id, code, sessions_total, sessions_used, expires_on, status')
+        .select('id, customer_id, offering_id, code, sessions_total, sessions_used, starts_on, expires_on, status')
         .eq('status', 'active')
       if (error) throw error
       return data ?? []
@@ -164,6 +148,7 @@ export default function DailyRevenueWorkbench({ client, onOpenInvoices, onEditor
   // 6. Load paid invoices on selectedDate (Recorded Shift Entries)
   const shiftEntriesQuery = useQuery({
     queryKey: ['daily-shift-entries', selectedDate],
+    enabled: Boolean(selectedDate),
     queryFn: async () => {
       const nextDate = new Date(`${selectedDate}T00:00:00Z`)
       nextDate.setUTCDate(nextDate.getUTCDate() + 1)
@@ -195,120 +180,53 @@ export default function DailyRevenueWorkbench({ client, onOpenInvoices, onEditor
     return map
   }, [offeringsQuery.data])
 
-  // Commission preview calculation
   function getRowCommission(row: ShiftEntryRow): number {
-    if (!row.offeringId || !row.technicianId) return 0
-    const rules = commissionRulesQuery.data ?? []
-    const offering = offeringsMap.get(Number(row.offeringId))
-    if (!offering) return 0
-
-    const techId = Number(row.technicianId)
-    const rule =
-      rules.find(
-        (r) =>
-          r.offering_id === offering.id &&
-          r.is_active &&
-          r.beneficiary_type === 'performer_employee' &&
-          r.beneficiary_employee_id === techId,
-      ) ||
-      rules.find(
-        (r) =>
-          r.offering_id === offering.id &&
-          r.is_active &&
-          r.beneficiary_type === 'primary_technician',
-      )
-
-    if (!rule) return 0
-    if (rule.calculation_type === 'fixed') {
-      return Number(rule.value)
-    }
-
-    const baseAmount =
-      row.classification === 'package' && row.collected === 0
-        ? offering.price || 0
-        : row.collected
-    return Math.round((baseAmount * Number(rule.value)) / 100)
+    return previewShiftCommission(row, offeringsMap.get(Number(row.offeringId)), commissionRulesQuery.data ?? [], selectedDate)
   }
 
-  // Row updates
+  function findCustomerPackage(row: ShiftEntryRow) {
+    if (row.classification !== 'package' || !row.customerId || !row.offeringId) return null
+    return (packagesQuery.data ?? []).find((pkg) => pkg.customer_id === row.customerId
+      && pkg.offering_id === row.offeringId && pkg.sessions_used < pkg.sessions_total
+      && (!pkg.starts_on || pkg.starts_on <= selectedDate)
+      && (!pkg.expires_on || pkg.expires_on >= selectedDate)) ?? null
+  }
+
+  // Thay đổi khách hoặc dịch vụ luôn xác định lại thẻ gói từ dữ liệu hiện tại.
   function updateRow(index: number, patch: Partial<ShiftEntryRow>) {
-    setRows((prev) => {
-      const next = [...prev]
-      const current = { ...next[index], ...patch }
-
-      // If classification changed to package: set collected to 0 & auto-detect customer package
-      if (patch.classification === 'package') {
-        current.collected = 0
-        if (current.customerId && current.offeringId) {
-          const pkg = (packagesQuery.data ?? []).find(
-            (p) =>
-              p.customer_id === current.customerId &&
-              p.offering_id === current.offeringId &&
-              p.sessions_used < p.sessions_total,
-          )
-          current.selectedPackageId = pkg ? pkg.id : null
-        }
-      } else if (patch.classification === 'retail') {
-        current.selectedPackageId = null
-        if (current.offeringId && current.collected === 0) {
-          const off = offeringsMap.get(Number(current.offeringId))
-          if (off && off.price) current.collected = off.price
-        }
+    setRows((previous) => previous.map((row, rowIndex) => {
+      if (rowIndex !== index) return row
+      const current = { ...row, ...patch }
+      if (patch.classification === 'package') current.collected = 0
+      if (patch.offeringId !== undefined || patch.classification === 'retail') {
+        current.collected = current.classification === 'package' ? 0 : offeringsMap.get(Number(current.offeringId))?.price ?? 0
       }
+      return current
+    }))
+    const rowId = rows[index]?.tempId
+    if (rowId) setRowErrors((previous) => ({ ...previous, [rowId]: '' }))
+  }
 
-      // If offering changed: auto-fill price
-      if (patch.offeringId !== undefined && patch.offeringId !== '') {
-        const off = offeringsMap.get(Number(patch.offeringId))
-        if (off) {
-          if (current.classification === 'package') {
-            current.collected = 0
-            if (current.customerId) {
-              const pkg = (packagesQuery.data ?? []).find(
-                (p) =>
-                  p.customer_id === current.customerId &&
-                  p.offering_id === off.id &&
-                  p.sessions_used < p.sessions_total,
-              )
-              current.selectedPackageId = pkg ? pkg.id : null
-            }
-          } else {
-            current.collected = off.price ?? 0
-          }
-        }
-      }
-
-      // If customer changed: check package
-      if (patch.customerId !== undefined && patch.customerId !== '') {
-        if (current.classification === 'package' && current.offeringId) {
-          const pkg = (packagesQuery.data ?? []).find(
-            (p) =>
-              p.customer_id === patch.customerId &&
-              p.offering_id === current.offeringId &&
-              p.sessions_used < p.sessions_total,
-          )
-          current.selectedPackageId = pkg ? pkg.id : null
-        }
-      }
-
-      next[index] = current
-      return next
-    })
+  function toggleCommissionExpand(tempId: string) {
+    setExpandedCommissions((prev) => ({ ...prev, [tempId]: !prev[tempId] }))
   }
 
   function addRow() {
     const nextRow = createBlankRow()
     setRows((prev) => [...prev, nextRow])
     window.requestAnimationFrame(() => {
-      document.getElementById(`classification-${nextRow.tempId}`)?.focus({ preventScroll: true })
-      document.getElementById(`classification-${nextRow.tempId}`)?.scrollIntoView({ block: 'nearest' })
+      document.getElementById(`customer-${nextRow.tempId}`)?.focus({ preventScroll: true })
+      document.getElementById(`customer-${nextRow.tempId}`)?.scrollIntoView({ block: 'nearest' })
     })
   }
 
   function removeRow(index: number) {
     if (rows.length <= 1) {
+      pendingPackages.current.delete(rows[index]?.tempId)
       setRows([createBlankRow()])
       return
     }
+    pendingPackages.current.delete(rows[index]?.tempId)
     setRows((prev) => prev.filter((_, i) => i !== index))
   }
 
@@ -356,90 +274,65 @@ export default function DailyRevenueWorkbench({ client, onOpenInvoices, onEditor
     }
   }
 
-  // Save all rows
+  async function refreshRecordedShifts() {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['daily-shift-entries'] }),
+      queryClient.invalidateQueries({ queryKey: ['overview'] }),
+      queryClient.invalidateQueries({ queryKey: ['invoices'] }),
+      queryClient.invalidateQueries({ queryKey: ['active-customer-packages'] }),
+      queryClient.invalidateQueries({ queryKey: ['payroll-period-detail'] }),
+    ])
+  }
+
   async function saveAll() {
-    for (let i = 0; i < rows.length; i++) {
-      const row = rows[i]
-      if (!row.customerId) {
-        toast.error(`Ca số ${i + 1}: Vui lòng chọn khách hàng.`)
-        return
-      }
-      if (!row.offeringId) {
-        toast.error(`Ca số ${i + 1}: Vui lòng chọn dịch vụ hoặc gói.`)
-        return
-      }
-      if (!row.technicianId) {
-        toast.error(`Ca số ${i + 1}: Vui lòng chọn kỹ thuật viên thực hiện.`)
-        return
-      }
-      if (row.collected < 0) {
-        toast.error(`Ca số ${i + 1}: Tiền thực thu không được âm.`)
-        return
-      }
+    if (saveInProgress.current) return
+    if (!selectedDate) {
+      toast.error('Vui lòng chọn ngày làm việc hợp lệ.')
+      return
+    }
+    const errors: Record<string, string> = {}
+    rows.forEach((row) => {
+      const error = validateShiftEntry(row)
+      if (error) errors[row.tempId] = error
+    })
+    setRowErrors(errors)
+    const firstInvalid = rows.findIndex((row) => errors[row.tempId])
+    if (firstInvalid >= 0) {
+      toast.error(`Ca số ${firstInvalid + 1}: ${errors[rows[firstInvalid].tempId]}`)
+      document.getElementById(`shift-error-${rows[firstInvalid].tempId}`)?.scrollIntoView({ block: 'nearest' })
+      return
+    }
+    if (commissionRulesQuery.isPending || commissionRulesQuery.isError || packagesQuery.isPending || packagesQuery.isError) {
+      toast.error('Chưa tải đủ quy tắc hoa hồng hoặc thẻ gói. Vui lòng tải lại dữ liệu trước khi lưu.')
+      return
     }
 
+    saveInProgress.current = true
     setSaving(true)
     let savedCount = 0
     const remaining = [...rows]
-
     try {
       for (const row of rows) {
-        const offering = offeringsMap.get(Number(row.offeringId))!
-        const nominalPrice = offering.price || 0
-        const discountAmount = Math.max(0, nominalPrice - Number(row.collected))
-
-        // 1. Create invoice idempotently
-        const invoiceScope = `shift-${row.tempId}`
-        const invoiceRes = await createInvoice(
-          client,
-          {
-            customerId: Number(row.customerId),
-            offeringId: Number(row.offeringId),
-            appointmentId: null,
-            employeeId: Number(row.technicianId),
-            discountAmount,
-          },
-          invoiceScope,
-        )
-
-        // 2. Pay invoice (triggers private.create_invoice_commissions on Supabase)
-        await payInvoice(
-          client,
-          invoiceRes.invoice.id,
-          row.paymentMethod,
-          row.notes.trim() || 'Nhập ca làm cuối ngày',
-        )
-
-        // 3. If package session linked, consume session
-        if (row.classification === 'package' && row.selectedPackageId) {
-          try {
-            await consumeCustomerPackage(
-              client,
-              row.selectedPackageId,
-              Number(row.technicianId),
-              'Trừ buổi từ ca làm cuối ngày',
-            )
-          } catch {
-            // Non-blocking package consumption warning
-            toast.warning(`Đã tạo hóa đơn nhưng chưa trừ được buổi gói của thẻ #${row.selectedPackageId}.`)
-          }
-        }
-
+        const selection = `${row.classification}:${row.customerId}:${row.offeringId}`
+        const pendingPackage = pendingPackages.current.get(row.tempId)
+        const packageId = pendingPackage?.selection === selection ? pendingPackage.packageId : findCustomerPackage(row)?.id ?? null
+        pendingPackages.current.set(row.tempId, { selection, packageId })
+        await recordDailyShift(client, row, selectedDate, packageId)
+        pendingPackages.current.delete(row.tempId)
         savedCount++
         remaining.shift()
         setRows([...remaining])
       }
-
       toast.success(`Đã lưu thành công ${savedCount} ca làm!`)
       setRows([createBlankRow()])
-      void queryClient.invalidateQueries({ queryKey: ['daily-shift-entries', selectedDate] })
-      void queryClient.invalidateQueries({ queryKey: ['overview'] })
-      void queryClient.invalidateQueries({ queryKey: ['invoices'] })
-      void queryClient.invalidateQueries({ queryKey: ['active-customer-packages'] })
-    } catch (err: any) {
-      toast.error(err.message || 'Lỗi khi lưu ca làm.')
+      setRowErrors({})
+    } catch (error: unknown) {
+      const message = error && typeof error === 'object' && 'message' in error ? String(error.message) : 'Không thể lưu ca làm. Vui lòng thử lại.'
+      toast.error(savedCount > 0 ? `Đã lưu ${savedCount} ca. ${message}` : message)
     } finally {
+      await refreshRecordedShifts()
       setSaving(false)
+      saveInProgress.current = false
     }
   }
 
@@ -450,7 +343,7 @@ export default function DailyRevenueWorkbench({ client, onOpenInvoices, onEditor
     const entryComms = (inv.commission_entries ?? []).filter((c: any) => c.status !== 'reversed')
     return sum + entryComms.reduce((s: number, c: any) => s + Number(c.amount), 0)
   }, 0)
-  const recordedPackageSessions = recordedEntries.filter((inv) => Number(inv.total_received) === 0 || inv.type === 'package').length
+  const recordedPackageSessions = recordedEntries.filter((inv) => recordedShiftClassification(inv) === 'package').length
   const recordedRetailSessions = recordedEntries.length - recordedPackageSessions
   const recordedPageSize = 10
   const recordedPageCount = Math.max(1, Math.ceil(recordedEntries.length / recordedPageSize))
@@ -471,12 +364,7 @@ export default function DailyRevenueWorkbench({ client, onOpenInvoices, onEditor
           <p>Ghi nhận nhanh danh sách ca phục vụ của KTV, tiền thực thu và tự động tính hoa hồng.</p>
         </div>
         <div className="daily-revenue-actions">
-          <DateInput label="Chọn ngày làm việc" value={selectedDate} required onChange={(value) => { if (value) { setSelectedDate(value); setRecordedPage(0) } }} />
-          {onOpenInvoices && (
-            <button className="secondary-button" onClick={onOpenInvoices}>
-              <Receipt size={16} /> Mở sổ hóa đơn
-            </button>
-          )}
+          <DateInput label="Chọn ngày làm việc" value={selectedDate} required disabled={saving} onChange={(value) => { setSelectedDate(value); setRecordedPage(0) }} />
         </div>
       </div>
 
@@ -527,6 +415,12 @@ export default function DailyRevenueWorkbench({ client, onOpenInvoices, onEditor
         </button>
       </div>
 
+      {(commissionRulesQuery.isError || packagesQuery.isError) && <div className="daily-revenue-load-error" role="alert">
+        <span>Chưa tải đủ quy tắc hoa hồng hoặc thẻ gói. Các ca đang nhập được giữ nguyên.</span>
+        <button type="button" className="secondary-button" disabled={commissionRulesQuery.isFetching || packagesQuery.isFetching}
+          onClick={() => { void commissionRulesQuery.refetch(); void packagesQuery.refetch() }}>Tải lại dữ liệu</button>
+      </div>}
+
       {/* Quick Entry Workbench */}
       <section className="daily-revenue-card" hidden={activePanel !== 'entry'}>
         <div className="daily-revenue-card-header">
@@ -542,54 +436,69 @@ export default function DailyRevenueWorkbench({ client, onOpenInvoices, onEditor
         <div className="daily-revenue-rows">
           {rows.map((row, index) => {
             const previewCommission = getRowCommission(row)
-            const matchedPackage =
-              row.classification === 'package' && row.customerId && row.offeringId
-                ? (packagesQuery.data ?? []).find(
-                    (p) =>
-                      p.customer_id === row.customerId &&
-                      p.offering_id === row.offeringId &&
-                      p.sessions_used < p.sessions_total,
-                  )
-                : null
+            const matchedPackage = findCustomerPackage(row)
+            const offering = offeringsMap.get(Number(row.offeringId))
+            const base = offering ? commissionBase(row, offering) : 0
+            const commissionError = validateCommissionOverride(row.commissionType, row.commissionValue)
+            const hasCustomCommission = row.commissionValue.trim() !== ''
+            const isCommissionOpen = Boolean(expandedCommissions[row.tempId] || hasCustomCommission)
 
             return (
               <div key={row.tempId} className="daily-revenue-row-card">
+                {/* Header: Shift Number + Segmented Classification + Live Commission Preview + Delete */}
                 <div className="daily-revenue-row-top">
-                  <div className="daily-revenue-row-title">
-                    <span>Ca #{index + 1}</span>
-                    <span className={`daily-revenue-row-badge ${row.classification}`}>
-                      {row.classification === 'package' ? 'Khách làm gói' : 'Khách lẻ'}
-                    </span>
+                  <div className="daily-revenue-row-title-wrap">
+                    <span className="daily-revenue-row-index">Ca #{index + 1}</span>
+                    <div className="daily-revenue-seg-control" role="group" aria-label={`Phân loại ca số ${index + 1}`}>
+                      <button
+                        type="button"
+                        className={`daily-revenue-seg-btn ${row.classification === 'retail' ? 'active' : ''}`}
+                        onClick={() => updateRow(index, { classification: 'retail' })}
+                        disabled={saving}
+                      >
+                        Khách lẻ
+                      </button>
+                      <button
+                        type="button"
+                        className={`daily-revenue-seg-btn ${row.classification === 'package' ? 'active package' : ''}`}
+                        onClick={() => updateRow(index, { classification: 'package' })}
+                        disabled={saving}
+                      >
+                        Khách làm gói
+                      </button>
+                    </div>
                   </div>
-                  {rows.length > 1 && (
-                    <button
-                      className="icon-button"
-                      onClick={() => removeRow(index)}
-                      title="Xóa ca này"
-                      aria-label={`Xóa ca số ${index + 1}`}
-                      disabled={saving}
+
+                  <div className="daily-revenue-row-top-actions">
+                    <div
+                      className="daily-revenue-preview-commission"
+                      aria-live="polite"
+                      title="Hoa hồng dự kiến KTV nhận được cho ca này"
                     >
-                      <Trash2 size={16} />
-                    </button>
-                  )}
+                      <Sparkles size={13} />
+                      <span>
+                        Hoa hồng: <strong>{commissionRulesQuery.isPending ? '…' : commissionRulesQuery.isError ? 'Lỗi' : commissionError ? 'Chưa hợp lệ' : `${formatVnd(previewCommission)} ₫`}</strong>
+                      </span>
+                    </div>
+
+                    {rows.length > 1 && (
+                      <button
+                        type="button"
+                        className="daily-revenue-row-delete-btn"
+                        onClick={() => removeRow(index)}
+                        title="Xóa ca này"
+                        aria-label={`Xóa ca số ${index + 1}`}
+                        disabled={saving}
+                      >
+                        <Trash2 size={15} />
+                      </button>
+                    )}
+                  </div>
                 </div>
 
+                {/* 4 Essential Fields: Khách hàng, Dịch vụ / Gói, KTV thực hiện, Tiền thực thu */}
                 <div className="daily-revenue-grid">
-                  {/* Classification */}
-                  <div className="daily-revenue-field">
-                    <label htmlFor={`classification-${row.tempId}`}>Phân loại khách</label>
-                    <select
-                      id={`classification-${row.tempId}`}
-                      value={row.classification}
-                      onChange={(e) => updateRow(index, { classification: e.target.value as SessionClassification })}
-                      disabled={saving}
-                    >
-                      <option value="retail">Khách lẻ trong ngày</option>
-                      <option value="package">Khách đã mua gói</option>
-                    </select>
-                  </div>
-
-                  {/* Customer selection */}
+                  {/* Customer */}
                   <div className="daily-revenue-field">
                     <label htmlFor={`customer-${row.tempId}`}>Khách hàng *</label>
                     <div className="daily-revenue-customer-select-wrap">
@@ -602,14 +511,14 @@ export default function DailyRevenueWorkbench({ client, onOpenInvoices, onEditor
                         <option value="">-- Chọn khách hàng --</option>
                         {(customersQuery.data ?? []).map((c) => (
                           <option key={c.id} value={c.id}>
-                            {c.name} · {c.phone ?? 'Chưa có số điện thoại'}
+                            {c.name} · {c.phone ?? 'Chưa có SĐT'}
                           </option>
                         ))}
                       </select>
                       <button
                         type="button"
                         className="daily-revenue-customer-add-btn"
-                        title="Thêm nhanh khách hàng"
+                        title="Thêm nhanh khách hàng mới"
                         aria-label={`Thêm khách hàng cho ca số ${index + 1}`}
                         onClick={() => {
                           setCustomerError('')
@@ -618,12 +527,12 @@ export default function DailyRevenueWorkbench({ client, onOpenInvoices, onEditor
                         }}
                         disabled={saving}
                       >
-                        <UserPlus size={16} />
+                        <UserPlus size={15} />
                       </button>
                     </div>
                   </div>
 
-                  {/* Offering selection */}
+                  {/* Offering */}
                   <div className="daily-revenue-field">
                     <label htmlFor={`offering-${row.tempId}`}>Dịch vụ / Gói liệu trình *</label>
                     <select
@@ -641,21 +550,7 @@ export default function DailyRevenueWorkbench({ client, onOpenInvoices, onEditor
                     </select>
                   </div>
 
-                  {/* Collected money */}
-                  <div className="daily-revenue-field">
-                    <label htmlFor={`collected-${row.tempId}`}>Tiền thực thu (₫)</label>
-                    <input
-                      id={`collected-${row.tempId}`}
-                      type="number"
-                      min={0}
-                      step={1000}
-                      value={row.collected}
-                      onChange={(e) => updateRow(index, { collected: Math.max(0, Number(e.target.value)) })}
-                      disabled={saving}
-                    />
-                  </div>
-
-                  {/* Technician selection */}
+                  {/* Technician */}
                   <div className="daily-revenue-field">
                     <label htmlFor={`technician-${row.tempId}`}>KTV thực hiện *</label>
                     <select
@@ -672,30 +567,119 @@ export default function DailyRevenueWorkbench({ client, onOpenInvoices, onEditor
                       ))}
                     </select>
                   </div>
+
+                  {/* Collected money */}
+                  <div className="daily-revenue-field">
+                    <label htmlFor={`collected-${row.tempId}`}>Tiền thực thu (₫)</label>
+                    <input
+                      id={`collected-${row.tempId}`}
+                      type="number"
+                      min={0}
+                      step={1}
+                      value={row.collected}
+                      placeholder={row.classification === 'package' ? '0 ₫ (gói)' : '0'}
+                      onChange={(e) => updateRow(index, { collected: Number(e.target.value) })}
+                      disabled={saving}
+                    />
+                  </div>
                 </div>
 
-                {/* Bottom Row Hints & Live Preview */}
-                <div className="daily-revenue-row-bottom">
-                  <div>
+                {/* Sub-bar: Package Info & Commission Override Toggle */}
+                <div className="daily-revenue-subline">
+                  <div className="daily-revenue-subline-left">
                     {row.classification === 'package' && (
                       <span className="daily-revenue-package-badge">
-                        <CheckCircle2 size={14} />
+                        <CheckCircle2 size={13} />
                         {matchedPackage ? (
                           <>Thẻ gói <strong>{matchedPackage.code}</strong> (Còn {matchedPackage.sessions_total - matchedPackage.sessions_used} buổi)</>
                         ) : (
-                          <>Khách làm gói: Tiền thu 0 ₫ (hoặc phụ thu). KTV vẫn nhận đủ hoa hồng ca làm.</>
+                          <>Khách làm gói: Tiền thu 0 ₫ (hoặc phụ thu) · KTV vẫn hưởng hoa hồng</>
                         )}
                       </span>
                     )}
                   </div>
 
-                  <div className="daily-revenue-preview-commission">
-                    <Sparkles size={14} />
-                    <span>
-                      Hoa hồng KTV dự kiến: <strong>{formatVnd(previewCommission)} ₫</strong>
-                    </span>
+                  <div className="daily-revenue-subline-right">
+                    <button
+                      type="button"
+                      className={`daily-revenue-override-toggle-btn ${hasCustomCommission ? 'has-override' : ''} ${isCommissionOpen ? 'open' : ''}`}
+                      onClick={() => toggleCommissionExpand(row.tempId)}
+                      title="Tùy chỉnh tỷ lệ hoặc số tiền hoa hồng riêng cho ca này"
+                    >
+                      <SlidersHorizontal size={13} />
+                      <span>
+                        {hasCustomCommission
+                          ? `Hoa hồng riêng: ${row.commissionType === 'percentage' ? `${row.commissionValue}%` : `${formatVnd(Number(row.commissionValue))} ₫`}`
+                          : 'Tùy chỉnh hoa hồng riêng'}
+                      </span>
+                      <ChevronDown size={13} className={`daily-revenue-chevron ${isCommissionOpen ? 'rotate' : ''}`} />
+                    </button>
                   </div>
                 </div>
+
+                {/* Collapsible Commission Override Panel */}
+                {isCommissionOpen && (
+                  <div className="daily-revenue-commission-editor">
+                    <div className="daily-revenue-field">
+                      <label htmlFor={`commission-type-${row.tempId}`}>Hình thức hoa hồng</label>
+                      <select
+                        id={`commission-type-${row.tempId}`}
+                        value={row.commissionType}
+                        disabled={saving}
+                        onChange={(event) => updateRow(index, { commissionType: event.target.value as ShiftEntryRow['commissionType'] })}
+                      >
+                        <option value="percentage">Theo phần trăm (%)</option>
+                        <option value="fixed">Theo số tiền (₫)</option>
+                      </select>
+                    </div>
+
+                    <div className="daily-revenue-field">
+                      <label htmlFor={`commission-value-${row.tempId}`}>
+                        {row.commissionType === 'percentage' ? 'Tỷ lệ hoa hồng (%)' : 'Số tiền hoa hồng (₫)'}
+                      </label>
+                      <div className="daily-revenue-input-with-reset">
+                        <input
+                          id={`commission-value-${row.tempId}`}
+                          type="number"
+                          min={0}
+                          max={row.commissionType === 'percentage' ? 100 : 9999999999}
+                          step={row.commissionType === 'percentage' ? 0.01 : 1}
+                          placeholder="Mặc định theo quy tắc"
+                          value={row.commissionValue}
+                          disabled={saving}
+                          aria-invalid={Boolean(commissionError)}
+                          aria-describedby={`commission-hint-${row.tempId}${commissionError ? ` commission-error-${row.tempId}` : ''}`}
+                          onChange={(event) => updateRow(index, { commissionValue: event.target.value })}
+                        />
+                        {row.commissionValue !== '' && (
+                          <button
+                            type="button"
+                            className="daily-revenue-reset-override-btn"
+                            title="Đặt lại theo quy tắc hoa hồng mặc định"
+                            onClick={() => updateRow(index, { commissionValue: '' })}
+                            disabled={saving}
+                          >
+                            <RotateCcw size={12} />
+                            <span>Mặc định</span>
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="daily-revenue-commission-note">
+                      <p id={`commission-hint-${row.tempId}`} className="daily-revenue-commission-hint">
+                        Chỉ áp dụng cho ca này, không đổi quy tắc spa. {row.commissionType === 'percentage' && <>Tính trên {formatVnd(base)} ₫{row.classification === 'package' && row.collected === 0 ? ' (giá niêm yết mỗi buổi)' : ' thực thu'}.</>}
+                      </p>
+                      {commissionError && <p id={`commission-error-${row.tempId}`} className="daily-revenue-row-error" role="alert">{commissionError}</p>}
+                    </div>
+                  </div>
+                )}
+
+                {rowErrors[row.tempId] && (
+                  <p id={`shift-error-${row.tempId}`} className="daily-revenue-row-error" role="alert">
+                    {rowErrors[row.tempId]}
+                  </p>
+                )}
               </div>
             )
           })}
@@ -705,7 +689,7 @@ export default function DailyRevenueWorkbench({ client, onOpenInvoices, onEditor
         <div className="daily-revenue-footer-bar">
           <div className="daily-revenue-draft-total">
             <span>Dự kiến ghi nhận: </span>
-            <strong>{rows.length} ca</strong> · Tiền thực thu: <strong>{formatVnd(draftRevenue)} ₫</strong> · Hoa hồng: <strong>{formatVnd(draftCommission)} ₫</strong>
+            <strong>{rows.length} ca</strong> · Tiền thực thu: <strong>{formatVnd(draftRevenue)} ₫</strong> · Tổng hoa hồng: <strong>{formatVnd(draftCommission)} ₫</strong>
           </div>
           <button className="primary-button" onClick={saveAll} disabled={saving}>
             <Save size={16} /> {saving ? 'Đang lưu ca làm…' : 'Lưu tất cả ca làm'}
@@ -759,7 +743,7 @@ export default function DailyRevenueWorkbench({ client, onOpenInvoices, onEditor
                   const item = inv.items?.[0]
                   const comms = (inv.commission_entries ?? []).filter((c: any) => c.status !== 'reversed')
                   const totalComm = comms.reduce((s: number, c: any) => s + Number(c.amount), 0)
-                  const isPackage = Number(inv.total_received) === 0 || inv.type === 'package'
+                  const isPackage = recordedShiftClassification(inv) === 'package'
                   const timeStr = inv.paid_at ? new Date(inv.paid_at).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }) : '--:--'
 
                   return (

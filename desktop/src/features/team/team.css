@@ -27,7 +27,7 @@
 .team-panel:not(:has(.team-pagination)) .team-table-scroll{max-height:clamp(240px,calc(100dvh - 430px),580px)}
 .team-table-scroll:focus-visible{outline-offset:-3px}
 .team-table{width:100%;min-width:900px;border-collapse:separate;border-spacing:0;white-space:nowrap}
-.team-table.commission-table{min-width:1050px}
+.team-table.commission-table{min-width:950px}
 .team-table th{position:sticky;top:0;z-index:1;height:38px;padding:0 12px;background:#f8faf9;color:#606f69;text-align:left;font-size:11px;font-weight:700;letter-spacing:.35px}
 .team-table td{height:58px;padding:8px 12px;border-top:1px solid #edf0ef;color:#596966;font-size:12px}
 .team-table th:last-child,.team-table td:last-child{position:sticky;right:0;background:#fff;box-shadow:-1px 0 0 #edf0ef}
@@ -109,3 +109,8 @@
 .business-settings-summary dd{margin:0;color:var(--text);font-size:13px;overflow-wrap:anywhere}
 .app-popup .team-form{gap:14px}
 .app-popup .team-form>footer{margin-top:4px}
+
+.team-legacy-rule-note{display:grid;gap:8px;padding:12px;border-radius:8px;background:var(--surface-muted,#f8faf9);color:#465653;font-size:12px;line-height:1.55}
+.team-legacy-rule-note>strong{color:var(--text,#273532);font-size:12px}
+.team-legacy-rule-note>p{margin:0}
+.team-legacy-rule-note>.secondary-button{justify-self:start}
